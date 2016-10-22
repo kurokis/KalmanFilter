@@ -20,11 +20,6 @@
 
 // Measurement noise covariance
 #define G GRAVITY_ACCELERATION
-#define KALMAN_Q_PRIME_ALPHA (0)
-#define KALMAN_Q_PRIME_VELOCITY (0.001)
-#define KALMAN_Q_PRIME_H_POSITION (0.0)
-#define KALMAN_Q_PRIME_V_POSITION (0.0)
-// #define KALMAN_Q_PRIME_V_POSITION (0.001)
 #define KALMAN_SIGMA_ACCELEROMETER_X (0.005)
 #define KALMAN_SIGMA_ACCELEROMETER_Y (0.005)
 #define KALMAN_SIGMA_ACCELEROMETER_Z (0.042)
@@ -199,27 +194,8 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
   Vector3Add(position_prev, Vector3Scale(velocity_prev, DT, temp),
     position_next);
 
-  // Update error covariance matrix P
-  // 1. Discretization of error process model. Calculate Phi and Gamma, where
-  //    deltax_next = Phi*deltax_prev + Gamma*deltau + process noise by modeling
-  //    error. deltau is the "error input" into the process, which is process
-  //    noise by IMU. (deltau=[gyro error; accel error])
-  // 2. Definition of Q and Qprime (which are constant throughout the
-  //    experiment)
-  //    Q: covariance matrix of process noise due to IMU
-  //       This can be modeled beforehand.
-  //    Qprime: covariance matrix of process noise due to modeling error.
-  //            Such noise may be introduced into the system by angular momentum
-  //            acting on the body, for example. This term will be used as a
-  //            filter design parameter.
-  // 3. Propagation of P
-  //    P_pred = Phi*P_est_prev*Phi^T + Gamma*Q*Gamma^T + Qprime
-
-
-  // 3. Propagate P
-
-  // P_pred = Phi*P*Phi^t + Gamma*Q*Gamma^t + Qprime
-  float * PhiPPhit = P_pred;  // conserves memory
+  // P_pred = Phi*P*Phi^T + Gamma*Q*Gamma^T
+  //float * PhiPPhit = P_pred;  // conserves memory
   {
     float P11[3*3], P12[3*3], P13[3*3];
     float P21[3*3], P22[3*3], P23[3*3];
@@ -235,18 +211,18 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     SubmatrixCopyToMatrix(P_est_prev, P32, 6, 3, P_DIM, 3, 3);
     SubmatrixCopyToMatrix(P_est_prev, P33, 6, 6, P_DIM, 3, 3);
 
-    // Phi = I + A * dt
-    // const float Phi[P_DIM*P_DIM] = {
-    //               1,    gyro[2]*DT,   -gyro[1]*DT,    0,    0,    0, 0, 0, 0,
-    //     -gyro[2]*DT,             1,    gyro[0]*DT,    0,    0,    0, 0, 0, 0,
-    //      gyro[1]*DT,   -gyro[0]*DT,             1,    0,    0,    0, 0, 0, 0,
-    //   -Cbissa[0]*DT, -Cbissa[1]*DT, -Cbissa[2]*DT,    1,    0,    0, 0, 0, 0,
-    //   -Cbissa[3]*DT, -Cbissa[4]*DT, -Cbissa[5]*DT,    0,    1,    0, 0, 0, 0,
-    //   -Cbissa[6]*DT, -Cbissa[7]*DT, -Cbissa[8]*DT,    0,    0,    1, 0, 0, 0,
-    //               0,             0,             0, 1*DT,    0,    0, 1, 0, 0,
-    //               0,             0,             0,    0, 1*DT,    0, 0, 1, 0,
-    //               0,             0,             0,    0,    0, 1*DT, 0, 0, 1,
-    // };
+    // Phi = I + A * DT =
+    //  [             I-[gyro x]*DT,    O, O ]
+    //  [ -Cbi*[accelerometer x]*DT,    I, O ]
+    //  [                         O, I*DT, I ]
+    // Gamma = B * dt =
+    // [ -I*DT,       O ]
+    // [     O, -Cbi*DT ]
+    // [     O,       O ]
+    // Gamma * Q * Gamma^T =
+    // [ Q_11*DT^2,                   O, O ]
+    // [           O, Cbi*Q_22*Cbi*DT^2, O ]
+    // [           O,                 O, O ]
 
     const float Phi11[3*3] = {
                 1,    gyro[2]*DT,   -gyro[1]*DT,
@@ -257,7 +233,7 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     float Phi21[3*3];
     Vector3ToSkewSymmetric3(accelerometer, temp);
     MatrixMultiplySkewSymmetric3(Cbi, temp, 3, Phi21);
-    MatrixScaleSelf(Phi21, -DT, 3, 3);  // Phi21 = Cbi * ssa * DT
+    MatrixScaleSelf(Phi21, -DT, 3, 3);
 
     float PhiPPhit11[3*3], PhiPPhit12[3*3], PhiPPhit13[3*3];
     float PhiPPhit21[3*3], PhiPPhit22[3*3], PhiPPhit23[3*3];
@@ -311,82 +287,36 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     MatrixAddToSelf(PhiPPhit33, P33, 3, 3);
     MatrixAddToSelf(PhiPPhit33, temp, 3, 3);
 
-    MatrixCopyToSubmatrix(PhiPPhit11, PhiPPhit, 0, 0, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit12, PhiPPhit, 0, 3, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit13, PhiPPhit, 0, 6, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit21, PhiPPhit, 3, 0, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit22, PhiPPhit, 3, 3, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit23, PhiPPhit, 3, 6, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit31, PhiPPhit, 6, 0, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit32, PhiPPhit, 6, 3, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit33, PhiPPhit, 6, 6, 3, 3, P_DIM);
-  }
-
-  // P_pred = Phi*P*Phi^t + Gamma*Q*Gamma^t + Qprime
-  float GammaQGammat[P_DIM*P_DIM] = { 0 };
-  {
-    // Gamma = B * dt
-    // const float Gamma[P_DIM * U_DIM] = {
-    //   -1*DT,     0,     0,          0,          0,          0,
-    //       0, -1*DT,     0,          0,          0,          0,
-    //       0,     0, -1*DT,          0,          0,          0,
-    //       0,     0,     0, -Cbi[0]*DT, -Cbi[1]*DT, -Cbi[2]*DT,
-    //       0,     0,     0, -Cbi[3]*DT, -Cbi[4]*DT, -Cbi[5]*DT,
-    //       0,     0,     0, -Cbi[6]*DT, -Cbi[7]*DT, -Cbi[8]*DT,
-    //       0,     0,     0,          0,          0,          0,
-    //       0,     0,     0,          0,          0,          0,
-    //       0,     0,     0,          0,          0,          0,
-    // };
-
-    // const float QDiag[U_DIM] = {
-    //   KALMAN_SIGMA_GYRO * KALMAN_SIGMA_GYRO,
-    //   KALMAN_SIGMA_GYRO * KALMAN_SIGMA_GYRO,
-    //   KALMAN_SIGMA_GYRO * KALMAN_SIGMA_GYRO,
-    //   KALMAN_SIGMA_ACCELEROMETER_X * KALMAN_SIGMA_ACCELEROMETER_X,
-    //   KALMAN_SIGMA_ACCELEROMETER_Y * KALMAN_SIGMA_ACCELEROMETER_Y,
-    //   KALMAN_SIGMA_ACCELEROMETER_Z * KALMAN_SIGMA_ACCELEROMETER_Z,
-    // };
-
+    // GammaQGammat11
     const float GammaQGammat11[3*3] = {
       -DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*-DT, 0, 0,
       0, -DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*-DT, 0,
       0, 0, -DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*-DT,
     };
 
-    const float Gamma22[3*3] = {
-      -Cbi[0]*DT, -Cbi[1]*DT, -Cbi[2]*DT,
-      -Cbi[3]*DT, -Cbi[4]*DT, -Cbi[5]*DT,
-      -Cbi[6]*DT, -Cbi[7]*DT, -Cbi[8]*DT,
-    };
-
+    // GammaQGammat22
     float GammaQGammat22[3*3];
-    const float Q22Gamma22t[3*3] = {
-      -Cbi[0]*DT*KALMAN_SIGMA_ACCELEROMETER_X*KALMAN_SIGMA_ACCELEROMETER_X,
-      -Cbi[3]*DT*KALMAN_SIGMA_ACCELEROMETER_X*KALMAN_SIGMA_ACCELEROMETER_X,
-      -Cbi[6]*DT*KALMAN_SIGMA_ACCELEROMETER_X*KALMAN_SIGMA_ACCELEROMETER_X,
-      -Cbi[1]*DT*KALMAN_SIGMA_ACCELEROMETER_Y*KALMAN_SIGMA_ACCELEROMETER_Y,
-      -Cbi[4]*DT*KALMAN_SIGMA_ACCELEROMETER_Y*KALMAN_SIGMA_ACCELEROMETER_Y,
-      -Cbi[7]*DT*KALMAN_SIGMA_ACCELEROMETER_Y*KALMAN_SIGMA_ACCELEROMETER_Y,
-      -Cbi[2]*DT*KALMAN_SIGMA_ACCELEROMETER_Z*KALMAN_SIGMA_ACCELEROMETER_Z,
-      -Cbi[5]*DT*KALMAN_SIGMA_ACCELEROMETER_Z*KALMAN_SIGMA_ACCELEROMETER_Z,
-      -Cbi[8]*DT*KALMAN_SIGMA_ACCELEROMETER_Z*KALMAN_SIGMA_ACCELEROMETER_Z,
+    const float temp2[3*3] = {
+     KALMAN_SIGMA_ACCELEROMETER_X*KALMAN_SIGMA_ACCELEROMETER_X*DT*DT, 0, 0,
+     0, KALMAN_SIGMA_ACCELEROMETER_Y*KALMAN_SIGMA_ACCELEROMETER_Y*DT*DT, 0,
+     0, 0, KALMAN_SIGMA_ACCELEROMETER_Z*KALMAN_SIGMA_ACCELEROMETER_Z*DT*DT,
     };
-    MatrixMultiply(Gamma22, Q22Gamma22t, 3, 3, 3, GammaQGammat22);
+    MatrixMultiply(Cbi, temp2, 3, 3, 3, temp);
+    MatrixMultiply(temp, Cbi, 3, 3, 3, GammaQGammat22);
 
-    MatrixCopyToSubmatrix(GammaQGammat11, GammaQGammat, 0, 0, 3, 3, 9);
-    MatrixCopyToSubmatrix(GammaQGammat22, GammaQGammat, 3, 3, 3, 3, 9);
+    MatrixCopyToSubmatrix(MatrixAddToSelf(PhiPPhit11,GammaQGammat11,3,3),
+      P_pred, 0, 0, 3, 3, P_DIM);
+    MatrixCopyToSubmatrix(PhiPPhit12, P_pred, 0, 3, 3, 3, P_DIM);
+    MatrixCopyToSubmatrix(PhiPPhit13, P_pred, 0, 6, 3, 3, P_DIM);
+    MatrixCopyToSubmatrix(PhiPPhit21, P_pred, 3, 0, 3, 3, P_DIM);
+    MatrixCopyToSubmatrix(MatrixAddToSelf(PhiPPhit22,GammaQGammat22,3,3),
+      P_pred, 3, 3, 3, 3, P_DIM);
+    MatrixCopyToSubmatrix(PhiPPhit23, P_pred, 3, 6, 3, 3, P_DIM);
+    MatrixCopyToSubmatrix(PhiPPhit31, P_pred, 6, 0, 3, 3, P_DIM);
+    MatrixCopyToSubmatrix(PhiPPhit32, P_pred, 6, 3, 3, 3, P_DIM);
+    MatrixCopyToSubmatrix(PhiPPhit33, P_pred, 6, 6, 3, 3, P_DIM);
   }
 
-  const float QprimeDiag[P_DIM] = { KALMAN_Q_PRIME_ALPHA * DT,
-    KALMAN_Q_PRIME_ALPHA * DT, KALMAN_Q_PRIME_ALPHA * DT,
-    KALMAN_Q_PRIME_VELOCITY * DT, KALMAN_Q_PRIME_VELOCITY * DT,
-    KALMAN_Q_PRIME_VELOCITY * DT, KALMAN_Q_PRIME_H_POSITION * DT,
-    KALMAN_Q_PRIME_H_POSITION * DT, KALMAN_Q_PRIME_V_POSITION * DT };
-
-  // P_pred = Phi*P*Phi^t + Gamma*Q*Gamma^t + Qprime
-  // recall that (float *)P_pred = (float *)PhiPPhit
-  MatrixAddDiagonalToSelf(MatrixAddToSelf(PhiPPhit, GammaQGammat, P_DIM, P_DIM),
-    QprimeDiag, P_DIM);
 }
 
 // -----------------------------------------------------------------------------
@@ -405,20 +335,20 @@ static void AccelerometerUpdate(const float * x_pred, const float * P_pred,
   QuaternionToDCM(quat_pred, C);
   MatrixMultiply(C, accelerometer, 3, 3, 1, temp);
   Vector3ToSkewSymmetric3(temp, U); // U = [(C*accelerometer) x]
-  
+
   SubmatrixCopyToMatrix(P_pred, temp, 0, 0, 9, 3, 3);
   MatrixMultiply(U, temp, 3, 3, 3, D);  // D = U*P11
-  
+
   SubmatrixCopyToMatrix(P_pred, temp, 0, 3, 9, 3, 3);
   MatrixMultiply(U, temp, 3, 3, 3, E);  // E = U*P12
-  
+
   SubmatrixCopyToMatrix(P_pred, temp, 0, 6, 9, 3, 3);
   MatrixMultiply(U, temp, 3, 3, 3, F);  // F = U*P13
-  
+
   MatrixMultiplyByTranspose(D, U, 3, 3, 3, temp);
   MatrixAddDiagonalToSelf(temp, R_diag, 3);
   MatrixInverse(temp, 3, T); // T = (D*U^t+R_diag)^(-1)
-  
+
   float K[P_DIM * 3];
   MatrixMultiplyTransposeBy(D, T, 3, 3, 3, &K[0]); // K1 = D^t*T
   MatrixMultiplyTransposeBy(E, T, 3, 3, 3, &K[9]); // K2 = E^t*T
@@ -450,7 +380,7 @@ static void AccelerometerUpdate(const float * x_pred, const float * P_pred,
   ////
 
   MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
-  	 
+
   // predicted measurement = C * [0 0 -G]^t
   const float predicted_measurement[3] = { C[0*3+2] * -G, C[1*3+2] * -G,
     C[2*3+2] * -G };
@@ -520,7 +450,7 @@ static void VisionUpdate(const float * x_pred, const float * P_pred,
   SubmatrixCopyToMatrix(P_pred, temp, 3, 0, 9, 3, 3);
   MatrixMultiply(C, temp, 3, 3, 3, temp3);
   MatrixAdd(temp2, temp3, 3, 3, D); // D = U*P11 + C*P21
- 
+
   SubmatrixCopyToMatrix(P_pred, temp, 0, 3, 9, 3, 3);
   MatrixMultiply(U, temp, 3, 3, 3, temp2);
   SubmatrixCopyToMatrix(P_pred, temp, 3, 3, 9, 3, 3);
@@ -587,22 +517,22 @@ static void PositionUpdate(const float * x_pred, const float * P_pred,
 	  KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
 	  KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
   };
-  
+
   float P13[3 * 3], P23[3 * 3], P33[3 * 3];
   SubmatrixCopyToMatrix(P_pred, P13, 0, 6, P_DIM, 3, 3);
   SubmatrixCopyToMatrix(P_pred, P23, 3, 6, P_DIM, 3, 3);
   SubmatrixCopyToMatrix(P_pred, P33, 6, 6, P_DIM, 3, 3);
-  
+
   float temp[3 * 3], temp2[3 * 3];
   MatrixCopy(P33, 3, 3, temp);
   MatrixAddDiagonalToSelf(temp, R_diag, 3);
   MatrixInverse(temp, 3, temp2);
-  
+
   float K[P_DIM * 3];
   MatrixMultiply(P13, temp2, 3, 3, 3, &K[0]); // P13*T
   MatrixMultiply(P23, temp2, 3, 3, 3, &K[9]); // P23*T
   MatrixMultiply(P33, temp2, 3, 3, 3, &K[18]); //P33*T
-  
+
   float KHP[P_DIM * P_DIM];
   MatrixMultiplyByTranspose(&K[0], P13, 3, 3, 3, temp); // K1*P31
   MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
