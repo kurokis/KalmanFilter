@@ -1,12 +1,12 @@
 #include "kalman_filter.h"
 
-#include <stdio.h>
-
+#include <math.h>
 #include "attitude.h"
 #include "constants.h"
 #include "matrix.h"
 #include "quaternion.h"
 #include "vector.h"
+
 
 
 // =============================================================================
@@ -34,6 +34,17 @@ static float x_[X_DIM] = { 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
 static float P_[P_DIM*P_DIM] = { 0.0 };
 static float baro_altitude_offset = 0.0;
 
+static struct GpsHome{
+  int32_t longitude;
+  int32_t latitude;
+  int32_t height;
+  float cos_lat;
+  float lon_scale;
+  float lat_scale;
+  float height_scale;
+  float cos_xaxis;
+  float sin_xaxis;
+} __attribute__((packed)) gpshome_;
 
 // =============================================================================
 // Accessors:
@@ -76,6 +87,10 @@ static void VisionUpdate(const float * x_pred, const float * P_pred,
   const float * vision, float * x_est, float * P_est);
 static void PositionUpdate(const float * x_pred, const float * P_pred,
   const float * position, float * x_est, float * P_est);
+static void GPSPositionUpdate(const float * x_pred, const float * P_pred,
+  const int32_t longitude, const int32_t latitude,
+  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
+  const uint32_t vertical_accuracy, float * x_est, float * P_est);
 static void MeasurementUpdateCommon(const float * x_pred,
   const float * measurement, const float * predicted_measurement,
   const float * K, float * x_est, int z_dim);
@@ -139,6 +154,19 @@ void KalmanPositionUpdate(const float position[3])
 }
 
 // -----------------------------------------------------------------------------
+void KalmanGPSPositionUpdate(const int32_t longitude, const int32_t latitude,
+  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
+  const uint32_t vertical_accuracy)
+{
+  float x_est[X_DIM];
+  float P_est[P_DIM*P_DIM];
+  GPSPositionUpdate(x_, P_, longitude, latitude, height_mean_sea_level,
+    horizontal_accuracy, vertical_accuracy, x_est, P_est);
+  VectorCopy(x_est, X_DIM, x_);
+  MatrixCopy(P_est, P_DIM, P_DIM, P_);
+}
+
+// -----------------------------------------------------------------------------
 void ResetKalman(void)
 {
   heading_ = 0.0;
@@ -157,6 +185,24 @@ void ResetKalmanBaroAltitudeOffset(float baro_altitude, float position_down)
   x_[9] = position_down;
 }
 
+// -----------------------------------------------------------------------------
+void SetGpsHome(const int32_t longitude, const int32_t latitude,
+  const int32_t height_mean_sea_level, const float heading_xaxis)
+{
+  // WGS84 spheroid
+  gpshome_.longitude = longitude;
+  gpshome_.latitude = latitude;
+  gpshome_.height = height_mean_sea_level;
+
+  float lat = ((float)latitude)/10000000.0;
+  gpshome_.cos_lat = cos(lat);
+  gpshome_.lon_scale = 0.0111132954 * gpshome_.cos_lat;
+  gpshome_.lat_scale = 0.0111132954 - 0.0000559822 * cos(2*lat) + 0.0000001175 * cos(4*lat);
+  gpshome_.height_scale = 0.001;
+
+  gpshome_.cos_xaxis = cos(heading_xaxis);
+  gpshome_.sin_xaxis = sin(heading_xaxis);
+}
 
 // =============================================================================
 // Private functions:
@@ -513,9 +559,77 @@ static void PositionUpdate(const float * x_pred, const float * P_pred,
 {
   const float *r_pred = &x_pred[7]; // predicted position in i-frame
   const float R_diag[3] = {
-	  KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
-	  KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
-	  KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
+    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
+    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
+    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
+  };
+
+  float P13[3 * 3], P23[3 * 3], P33[3 * 3];
+  SubmatrixCopyToMatrix(P_pred, P13, 0, 6, P_DIM, 3, 3);
+  SubmatrixCopyToMatrix(P_pred, P23, 3, 6, P_DIM, 3, 3);
+  SubmatrixCopyToMatrix(P_pred, P33, 6, 6, P_DIM, 3, 3);
+
+  float temp[3 * 3], temp2[3 * 3];
+  MatrixCopy(P33, 3, 3, temp);
+  MatrixAddDiagonalToSelf(temp, R_diag, 3);
+  MatrixInverse(temp, 3, temp2);
+
+  float K[P_DIM * 3];
+  MatrixMultiply(P13, temp2, 3, 3, 3, &K[0]); // P13*T
+  MatrixMultiply(P23, temp2, 3, 3, 3, &K[9]); // P23*T
+  MatrixMultiply(P33, temp2, 3, 3, 3, &K[18]); //P33*T
+
+  float KHP[P_DIM * P_DIM];
+  MatrixMultiplyByTranspose(&K[0], P13, 3, 3, 3, temp); // K1*P31
+  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
+  MatrixMultiplyByTranspose(&K[0], P23, 3, 3, 3, temp); // K1*P32
+  MatrixTranspose(temp, 3, 3, temp2);
+  MatrixCopyToSubmatrix(temp, KHP, 0, 3, 3, 3, P_DIM);
+  MatrixCopyToSubmatrix(temp2, KHP, 3, 0, 3, 3, P_DIM);
+  MatrixMultiplyByTranspose(&K[0], P33, 3, 3, 3, temp); // K1*P33
+  MatrixTranspose(temp, 3, 3, temp2);
+  MatrixCopyToSubmatrix(temp, KHP, 0, 6, 3, 3, P_DIM);
+  MatrixCopyToSubmatrix(temp2, KHP, 6, 0, 3, 3, P_DIM);
+  MatrixMultiplyByTranspose(&K[9], P23, 3, 3, 3, temp); // K2*P32
+  MatrixCopyToSubmatrix(temp, KHP, 3, 3, 3, 3, P_DIM);
+  MatrixMultiplyByTranspose(&K[9], P33, 3, 3, 3, temp); // K2*P33
+  MatrixTranspose(temp, 3, 3, temp2);
+  MatrixCopyToSubmatrix(temp, KHP, 3, 6, 3, 3, P_DIM);
+  MatrixCopyToSubmatrix(temp2, KHP, 6, 3, 3, 3, P_DIM);
+  MatrixMultiplyByTranspose(&K[18], P33, 3, 3, 3, temp); // K3*P33
+  MatrixCopyToSubmatrix(temp, KHP, 6, 6, 3, 3, P_DIM);
+  ////
+  // KHP = [K1*P31 K1*P32 K1*P33]
+  //       [       K2*P32 K2*P33]
+  //       [sym.          K3*P33]
+  ////
+
+  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
+
+  // predicted measurement = r_pred
+  float predicted_measurement[3];
+  MatrixCopy(r_pred, 3, 1, predicted_measurement);
+
+  MeasurementUpdateCommon(x_pred, position, predicted_measurement, K, x_est, 3);
+}
+
+static void GPSPositionUpdate(const float * x_pred, const float * P_pred,
+  const int32_t longitude, const int32_t latitude,
+  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
+  const uint32_t vertical_accuracy, float * x_est, float * P_est)
+{
+  float position[3];
+  float x_ned = gpshome_.lon_scale * (longitude - gpshome_.longitude);
+  float y_ned = gpshome_.lat_scale * (latitude - gpshome_.latitude);
+  position[0] = gpshome_.cos_xaxis * x_ned - gpshome_.sin_xaxis * y_ned;
+  position[1] = gpshome_.sin_xaxis * x_ned + gpshome_.cos_xaxis * y_ned;
+  position[2] = gpshome_.height_scale * (height_mean_sea_level - gpshome_.height);
+
+  const float *r_pred = &x_pred[7]; // predicted position in i-frame
+  const float R_diag[3] = {
+    horizontal_accuracy * horizontal_accuracy,
+    horizontal_accuracy * horizontal_accuracy,
+    vertical_accuracy * vertical_accuracy,
   };
 
   float P13[3 * 3], P23[3 * 3], P33[3 * 3];
