@@ -129,7 +129,7 @@ float * VectorAdd(const float *v1, const float *v2, uint8_t length,
 float * VectorCopy(const float * v, uint8_t length, float * result)
 {
   float * result_ptr = result;
-  for (uint8_t i = length; i; i--) *result_ptr++ = *v;
+  for (uint8_t i = length; i; i--) *result_ptr++ = *v++;
 
   return result;
 }

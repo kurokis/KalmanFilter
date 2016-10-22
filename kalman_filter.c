@@ -1,5 +1,5 @@
 #include "kalman_filter.h"
-
+#include <stdio.h>
 #include <math.h>
 #include "attitude.h"
 #include "constants.h"
@@ -110,7 +110,9 @@ void KalmanTimeUpdate(const float gyro[3], const float accelerometer[3])
 {
   float x_pred[X_DIM];
   TimeUpdate(x_, P_, gyro, accelerometer, x_pred, P_);
+
   VectorCopy(x_pred, X_DIM, x_);
+  printf("v:%f,%f,%f\n",x_[4],x_[5],x_[6]);
 }
 
 // -----------------------------------------------------------------------------
