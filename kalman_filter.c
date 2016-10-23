@@ -23,10 +23,11 @@
 #define KALMAN_SIGMA_ACCELEROMETER_X (0.005)
 #define KALMAN_SIGMA_ACCELEROMETER_Y (0.005)
 #define KALMAN_SIGMA_ACCELEROMETER_Z (0.042)
-#define KALMAN_SIGMA_ACCELEROMETER_G (0.25)
+#define KALMAN_SIGMA_ACCELEROMETER_G (2.5)
 #define KALMAN_SIGMA_BARO (0.68)
 #define KALMAN_SIGMA_GYRO (0.007)
-#define KALMAN_SIGMA_VISION (0.02)
+#define KALMAN_SIGMA_VISION (0.2)
+//#define KALMAN_SIGMA_VISION (0.02)
 #define KALMAN_SIGMA_POSITION (0.05)
 
 static float heading_ = 0.0;
@@ -71,6 +72,22 @@ const float * KalmanVelocity(void)
 {
   return &x_[4];
 }
+// -----------------------------------------------------------------------------
+const float * KalmanPAlpha(void)
+{
+  static float palpha_[3 * 3];
+  const float * ptr = (const float *) &palpha_;
+  palpha_[0] = P_[0*P_DIM+0];
+  palpha_[1] = P_[0*P_DIM+1];
+  palpha_[2] = P_[0*P_DIM+2];
+  palpha_[3] = P_[1*P_DIM+0];
+  palpha_[4] = P_[1*P_DIM+1];
+  palpha_[5] = P_[1*P_DIM+2];
+  palpha_[6] = P_[2*P_DIM+0];
+  palpha_[7] = P_[2*P_DIM+1];
+  palpha_[8] = P_[2*P_DIM+2];
+  return ptr;
+}
 
 
 // =============================================================================
@@ -110,9 +127,7 @@ void KalmanTimeUpdate(const float gyro[3], const float accelerometer[3])
 {
   float x_pred[X_DIM];
   TimeUpdate(x_, P_, gyro, accelerometer, x_pred, P_);
-
   VectorCopy(x_pred, X_DIM, x_);
-  printf("v:%f,%f,%f\n",x_[4],x_[5],x_[6]);
 }
 
 // -----------------------------------------------------------------------------
@@ -175,9 +190,15 @@ void ResetKalman(void)
   x_[0] = 1.0;
   for (size_t i = 10; --i; ) x_[i] = 0.0;
   for (size_t i = P_DIM * P_DIM; --i; ) P_[i] = 0.0;
-  P_[0*9+0] = 1.0e-05;
-  P_[1*9+1] = 1.0e-05;
-  P_[2*9+2] = 1.0e-05;
+  P_[0*9+0] = 0.1;
+  P_[1*9+1] = 0.1;
+  P_[2*9+2] = 0.1;
+  P_[3*9+3] = 0.1;
+  P_[4*9+4] = 0.1;
+  P_[5*9+5] = 0.1;
+  P_[6*9+6] = 0.1;
+  P_[7*9+7] = 0.1;
+  P_[8*9+8] = 0.1;
 }
 
 // -----------------------------------------------------------------------------
@@ -336,18 +357,20 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     MatrixAddToSelf(PhiPPhit33, temp, 3, 3);
 
     // GammaQGammat11
+    float a = 0;
     const float GammaQGammat11[3*3] = {
-      -DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*-DT, 0, 0,
-      0, -DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*-DT, 0,
-      0, 0, -DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*-DT,
+      DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*DT+a, 0, 0,
+      0, DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*DT+a, 0,
+      0, 0, DT*KALMAN_SIGMA_GYRO*KALMAN_SIGMA_GYRO*DT+a,
     };
 
     // GammaQGammat22
+    float b = 0;
     float GammaQGammat22[3*3];
     const float temp2[3*3] = {
-     KALMAN_SIGMA_ACCELEROMETER_X*KALMAN_SIGMA_ACCELEROMETER_X*DT*DT, 0, 0,
-     0, KALMAN_SIGMA_ACCELEROMETER_Y*KALMAN_SIGMA_ACCELEROMETER_Y*DT*DT, 0,
-     0, 0, KALMAN_SIGMA_ACCELEROMETER_Z*KALMAN_SIGMA_ACCELEROMETER_Z*DT*DT,
+     KALMAN_SIGMA_ACCELEROMETER_X*KALMAN_SIGMA_ACCELEROMETER_X*DT*DT+b, 0, 0,
+     0, KALMAN_SIGMA_ACCELEROMETER_Y*KALMAN_SIGMA_ACCELEROMETER_Y*DT*DT+b, 0,
+     0, 0, KALMAN_SIGMA_ACCELEROMETER_Z*KALMAN_SIGMA_ACCELEROMETER_Z*DT*DT+b,
     };
     MatrixMultiply(Cbi, temp2, 3, 3, 3, temp);
     MatrixMultiply(temp, Cbi, 3, 3, 3, GammaQGammat22);
@@ -381,8 +404,12 @@ static void AccelerometerUpdate(const float * x_pred, const float * P_pred,
   float C[3 * 3], U[3 * 3], D[3 * 3], E[3 * 3], F[3 * 3], T[3 * 3];
   float temp[3 * 3];
   QuaternionToDCM(quat_pred, C);
-  MatrixMultiply(C, accelerometer, 3, 3, 1, temp);
-  Vector3ToSkewSymmetric3(temp, U); // U = [(C*accelerometer) x]
+
+  // predicted measurement = C * [0 0 -G]^t
+  const float predicted_measurement[3] = { C[0*3+2] * -G, C[1*3+2] * -G,
+    C[2*3+2] * -G };
+
+  Vector3ToSkewSymmetric3(predicted_measurement, U); // U = [(C*accelerometer^i) x]
 
   SubmatrixCopyToMatrix(P_pred, temp, 0, 0, 9, 3, 3);
   MatrixMultiply(U, temp, 3, 3, 3, D);  // D = U*P11
@@ -428,10 +455,6 @@ static void AccelerometerUpdate(const float * x_pred, const float * P_pred,
   ////
 
   MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
-
-  // predicted measurement = C * [0 0 -G]^t
-  const float predicted_measurement[3] = { C[0*3+2] * -G, C[1*3+2] * -G,
-    C[2*3+2] * -G };
 
   MeasurementUpdateCommon(x_pred, accelerometer, predicted_measurement, K,
     x_est, 3);
@@ -691,9 +714,17 @@ static void MeasurementUpdateCommon(const float * x_pred,
   float residual[Z_DIM_MAX];
   VectorSubtract(measurement, predicted_measurement, z_dim, residual);
 
+  // printf("predicted_measurement:%f,%f,%f\n",predicted_measurement[0],predicted_measurement[1],predicted_measurement[2]);
+  // printf("measurement:%f,%f,%f\n",measurement[0],measurement[1],measurement[2]);
+  // printf("residual:%f,%f,%f\n",residual[0],residual[1],residual[2]);
+
   float delta_x[P_DIM];
 //////////////////////////////////////////////////////////////////////////////// 21
   MatrixMultiply(K, residual, P_DIM, z_dim, 1, delta_x);
+
+  //printf("deltax1:3:%f,%f,%f\n",delta_x[0],delta_x[1],delta_x[2]);
+  //printf("deltax4:6:%f,%f,%f\n",delta_x[4],delta_x[5],delta_x[6]);
+  //printf("deltax7:9:%f,%f,%f\n",delta_x[7],delta_x[8],delta_x[9]);
 
   float dq[4];
   {
@@ -729,7 +760,8 @@ static void MeasurementUpdateCommon(const float * x_pred,
   x_est[9] = delta_x[8];
   VectorAddToSelf(x_est, x_pred, X_DIM);
 
-  QuaternionNormalizingFilter(&x_est[0]);  // normalize the quaternion portion
+  //QuaternionNormalizingFilter(&x_est[0]);  // normalize the quaternion portion
+  QuaternionNormalize(&x_est[0]);
 }
 
 // -----------------------------------------------------------------------------
