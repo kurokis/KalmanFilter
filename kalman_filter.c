@@ -23,10 +23,10 @@
 #define KALMAN_SIGMA_ACCELEROMETER_X (0.005)
 #define KALMAN_SIGMA_ACCELEROMETER_Y (0.005)
 #define KALMAN_SIGMA_ACCELEROMETER_Z (0.042)
-#define KALMAN_SIGMA_ACCELEROMETER_G (2.5)
+#define KALMAN_SIGMA_ACCELEROMETER_G (0.25)
 #define KALMAN_SIGMA_BARO (0.68)
 #define KALMAN_SIGMA_GYRO (0.007)
-#define KALMAN_SIGMA_VISION (0.2)
+#define KALMAN_SIGMA_VISION (0.02)
 //#define KALMAN_SIGMA_VISION (0.02)
 #define KALMAN_SIGMA_POSITION (0.05)
 
@@ -365,7 +365,7 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     };
 
     // GammaQGammat22
-    float b = 0;
+    float b = 0; // 0.1?
     float GammaQGammat22[3*3];
     const float temp2[3*3] = {
      KALMAN_SIGMA_ACCELEROMETER_X*KALMAN_SIGMA_ACCELEROMETER_X*DT*DT+b, 0, 0,
@@ -387,6 +387,12 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     MatrixCopyToSubmatrix(PhiPPhit32, P_pred, 6, 3, 3, 3, P_DIM);
     MatrixCopyToSubmatrix(PhiPPhit33, P_pred, 6, 6, 3, 3, P_DIM);
   }
+
+  // Make P_pred symmetric
+  float temp4[P_DIM * P_DIM];
+  MatrixTranspose(P_pred,P_DIM,P_DIM,temp4);
+  MatrixAddToSelf(P_pred,temp4,P_DIM,P_DIM);
+  MatrixScaleSelf(P_pred,0.5,P_DIM,P_DIM);
 
 }
 
@@ -815,6 +821,18 @@ static float * QuaternionToDCM(const float *quat, float * result)
 
   // Double the result.
   for (size_t i = 0; i < 3*3; i++) result[i] += result[i];
+
+  float temp2[3*3];
+  MatrixCopy(result,3,3,temp2);
+  result[0] = temp2[0];
+  result[1] = 0.5*(temp2[1]-temp2[3]);
+  result[2] = 0.5*(temp2[2]-temp2[6]);
+  result[3] = -result[1];
+  result[4] = temp2[4];
+  result[5] = 0.5*(temp2[5]-temp2[7]);
+  result[6] = -result[2];
+  result[7] = -result[5];
+  result[8] = temp2[8];
 
   return result;
 }

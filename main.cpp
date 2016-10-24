@@ -12,7 +12,7 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output);
 
 int main(void)
 {
-  string input_filename = "a06_straightreverse1_14-30-15.CSV";
+  string input_filename = "a09_square_16-20-34.CSV";
   string output_filename = "signal_a.csv";
 
   ResetKalman();
@@ -81,7 +81,6 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
   static float accelerometer[3],gyro[3];
   static float accelerometer_bias[3],gyro_bias[3];
 
-  cout << endl;
   switch((int) input_int32_t[0])
   {
     case 0: // IMU
@@ -117,13 +116,13 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
 
       KalmanTimeUpdate(gyro, accelerometer);
       KalmanAccelerometerUpdate(accelerometer);
-      //if(gpsflag_)
-      //{
-      //  cout << "GPS update" <<endl;
-      //  KalmanGPSPositionUpdate(longitude, latitude, height_mean_sea_level,
-      //    horizontal_accuracy*0.05, vertical_accuracy*0.05);
-      //  gpsflag_ = false;
-      //}
+      if(gpsflag_)
+      {
+        cout << "GPS update" <<endl;
+        KalmanGPSPositionUpdate(longitude, latitude, height_mean_sea_level,
+          horizontal_accuracy*0.005, vertical_accuracy*0.005);
+        gpsflag_ = false;
+      }
       if(visionflag_)
       {
         KalmanVisionUpdate(vision);
@@ -147,7 +146,7 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
       gpsflag_ = true;
       if(firstgps_)
       {
-        SetGpsHome(longitude,latitude,height_mean_sea_level,80.0*0.01745);
+        SetGpsHome(longitude,latitude,height_mean_sea_level,(180.0+70.0)*0.01745);
         firstgps_ = false;
       }
       break;
@@ -155,7 +154,7 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
       vision[0] = input_float[5] * 0.001 * 30;
       vision[1] = input_float[6] * 0.001 * 30;
       vision[2] = input_float[7] * 0.001 * 30;
-      cout << "v:" << vision[0] << " " <<vision[1] << " " <<vision[2] << " " <<endl;
+      //cout << "v:" << vision[0] << " " <<vision[1] << " " <<vision[2] << " " <<endl;
       visionflag_ = true;
       break;
     default:
