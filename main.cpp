@@ -12,7 +12,7 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output);
 
 int main(void)
 {
-  string input_filename = "a09_square_16-20-34.CSV";
+  string input_filename = "a06_straightb1_14-30-15.CSV";
   string output_filename = "signal_a.csv";
 
   ResetKalman();
@@ -23,33 +23,33 @@ int main(void)
 void handle_io(string input_filename,string output_filename)
 {
   // initialize file read
-	ifstream ifs(input_filename);
-	if (!ifs) {
-		cout << "Error:Input data file not found" << endl;
-	}
+  ifstream ifs(input_filename);
+  if (!ifs) {
+    cout << "Error:Input data file not found" << endl;
+  }
 
   // initialize file write
-	ofstream ofs(output_filename);
+  ofstream ofs(output_filename);
 
   // process each row in signal.csv and write output to signal_a.csv
-	string str, token;
+  string str, token;
 
-	const int input_cols_max = 24;
+  const int input_cols_max = 24;
   const int output_cols = 22;
   int32_t input_int32_t[input_cols_max];
   float input_float[input_cols_max];
   float output[output_cols];
   char * e;
 
-	while (getline(ifs, str))
+  while (getline(ifs, str))
   {
     int cols = 0;
 
-		// read row
-		istringstream stream(str);
-		while (getline(stream, token, ','))
+    // read row
+    istringstream stream(str);
+    while (getline(stream, token, ','))
     {
-			input_int32_t[cols] = (int32_t) std::stol(token);
+      input_int32_t[cols] = (int32_t) std::stol(token);
       input_float[cols] = std::stof(token);
       cols++;
     }
@@ -59,14 +59,14 @@ void handle_io(string input_filename,string output_filename)
     //if(ctr<1782)
     //{
       process_data(input_int32_t,input_float,output);
-  		//write row
+      //write row
       for(int i = 0; i < output_cols; i++)
       {
-    		ofs << output[i] << ",";
+        ofs << output[i] << ",";
       }
       ofs << endl;
     //}
-	}
+  }
 }
 void process_data(int32_t * input_int32_t, float * input_float, float * output)
 {
@@ -111,9 +111,6 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
       gyro[1] -= gyro_bias[1];
       gyro[2] -= gyro_bias[2];
 
-      //cout << "a:" << accelerometer[0] << " " << accelerometer[1] << " " << accelerometer[2] << " ";
-      //cout << "g:" << gyro[0] << " " << gyro[1] << " " << gyro[2] << " " << endl;
-
       KalmanTimeUpdate(gyro, accelerometer);
       KalmanAccelerometerUpdate(accelerometer);
       if(gpsflag_)
@@ -141,8 +138,6 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
       height_mean_sea_level = input_int32_t[5];
       horizontal_accuracy = (uint32_t) input_int32_t[6];
       vertical_accuracy = (uint32_t) input_int32_t[7];
-      //cout << longitude << latitude << height_mean_sea_level<<endl;
-      //cout << horizontal_accuracy << " " << vertical_accuracy << endl;
       gpsflag_ = true;
       if(firstgps_)
       {
@@ -154,7 +149,6 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
       vision[0] = input_float[5] * 0.001 * 30;
       vision[1] = input_float[6] * 0.001 * 30;
       vision[2] = input_float[7] * 0.001 * 30;
-      //cout << "v:" << vision[0] << " " <<vision[1] << " " <<vision[2] << " " <<endl;
       visionflag_ = true;
       break;
     default:
