@@ -32,7 +32,17 @@
 
 static float heading_ = 0.0;
 static float x_[X_DIM] = { 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-static float P_[P_DIM*P_DIM] = { 0.0 };
+//static float P_[P_DIM*P_DIM] = { 0.0 };
+static struct P_{
+  float aa[3*3];
+  float av[3*3];
+  float ar[3*3];
+  float vv[3*3];
+  float vr[3*3];
+  float rr[3*3];
+} p_;
+
+
 static float baro_altitude_offset = 0.0;
 
 static struct GpsHome{
@@ -77,15 +87,15 @@ const float * KalmanPAlpha(void)
 {
   static float palpha_[3 * 3];
   const float * ptr = (const float *) &palpha_;
-  palpha_[0] = P_[0*P_DIM+0];
-  palpha_[1] = P_[0*P_DIM+1];
-  palpha_[2] = P_[0*P_DIM+2];
-  palpha_[3] = P_[1*P_DIM+0];
-  palpha_[4] = P_[1*P_DIM+1];
-  palpha_[5] = P_[1*P_DIM+2];
-  palpha_[6] = P_[2*P_DIM+0];
-  palpha_[7] = P_[2*P_DIM+1];
-  palpha_[8] = P_[2*P_DIM+2];
+  palpha_[0] = p_.aa[0*3+0];
+  palpha_[1] = p_.aa[0*3+1];
+  palpha_[2] = p_.aa[0*3+2];
+  palpha_[3] = p_.aa[1*3+0];
+  palpha_[4] = p_.aa[1*3+1];
+  palpha_[5] = p_.aa[1*3+2];
+  palpha_[6] = p_.aa[2*3+0];
+  palpha_[7] = p_.aa[2*3+1];
+  palpha_[8] = p_.aa[2*3+2];
   return ptr;
 }
 
@@ -93,21 +103,21 @@ const float * KalmanPAlpha(void)
 // =============================================================================
 // Private function declarations:
 
-static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
+static void TimeUpdate(const float * x_est_prev, const struct P_ * P_est_prev,
   const float * gyro, const float * accelerometer, float * x_pred,
-  float * P_pred);
-static void AccelerometerUpdate(const float * x_pred, const float * P_pred,
-  const float * accelerometer, float * x_est, float * P_est);
-static void BaroAltitudeUpdate(const float *x_pred, const float *P_pred,
-  float baro_altitude, float *x_est, float *P_est);
-static void VisionUpdate(const float * x_pred, const float * P_pred,
-  const float * vision, float * x_est, float * P_est);
-static void PositionUpdate(const float * x_pred, const float * P_pred,
-  const float * position, float * x_est, float * P_est);
-static void GPSPositionUpdate(const float * x_pred, const float * P_pred,
-  const int32_t longitude, const int32_t latitude,
-  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
-  const uint32_t vertical_accuracy, float * x_est, float * P_est);
+  struct P_ * P_pred);
+static void AccelerometerUpdate(const float * x_pred, const struct P_ * P_pred,
+  const float * accelerometer, float * x_est, struct P_ * P_est);
+//static void BaroAltitudeUpdate(const float *x_pred, const float *P_pred,
+//  float baro_altitude, float *x_est, float *P_est);
+//static void VisionUpdate(const float * x_pred, const float * P_pred,
+//  const float * vision, float * x_est, float * P_est);
+//static void PositionUpdate(const float * x_pred, const float * P_pred,
+//  const float * position, float * x_est, float * P_est);
+//static void GPSPositionUpdate(const float * x_pred, const float * P_pred,
+//  const int32_t longitude, const int32_t latitude,
+//  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
+//  const uint32_t vertical_accuracy, float * x_est, float * P_est);
 static void MeasurementUpdateCommon(const float * x_pred,
   const float * measurement, const float * predicted_measurement,
   const float * K, float * x_est, int z_dim);
@@ -126,7 +136,7 @@ static float * Vector3ToSkewSymmetric3(const float vec[3], float *result);
 void KalmanTimeUpdate(const float gyro[3], const float accelerometer[3])
 {
   float x_pred[X_DIM];
-  TimeUpdate(x_, P_, gyro, accelerometer, x_pred, P_);
+  TimeUpdate(x_, &p_, gyro, accelerometer, x_pred, &p_);
   VectorCopy(x_pred, X_DIM, x_);
 }
 
@@ -134,54 +144,59 @@ void KalmanTimeUpdate(const float gyro[3], const float accelerometer[3])
 void KalmanAccelerometerUpdate(const float accelerometer[3])
 {
   float x_est[X_DIM];
-  float P_est[P_DIM*P_DIM];
-  AccelerometerUpdate(x_, P_, accelerometer, x_est, P_est);
+  struct P_ P_est;
+  AccelerometerUpdate(x_, &p_, accelerometer, x_est, &P_est);
   VectorCopy(x_est, X_DIM, x_);
-  MatrixCopy(P_est, P_DIM, P_DIM, P_);
+  MatrixCopy(P_est.aa, 3, 3, p_.aa);
+  MatrixCopy(P_est.av, 3, 3, p_.av);
+  MatrixCopy(P_est.ar, 3, 3, p_.ar);
+  MatrixCopy(P_est.vv, 3, 3, p_.vv);
+  MatrixCopy(P_est.vr, 3, 3, p_.vr);
+  MatrixCopy(P_est.rr, 3, 3, p_.rr);
 }
 
-// -----------------------------------------------------------------------------
-void KalmanBaroAltitudeUpdate(float baro_altitude)
-{
-  float x_est[X_DIM];
-  float P_est[P_DIM*P_DIM];
-  BaroAltitudeUpdate(x_, P_, baro_altitude, x_est, P_est);
-  VectorCopy(x_est, X_DIM, x_);
-  MatrixCopy(P_est, P_DIM, P_DIM, P_);
-}
+//// -----------------------------------------------------------------------------
+//void KalmanBaroAltitudeUpdate(float baro_altitude)
+//{
+//  float x_est[X_DIM];
+//  float P_est[P_DIM*P_DIM];
+//  BaroAltitudeUpdate(x_, P_, baro_altitude, x_est, P_est);
+//  VectorCopy(x_est, X_DIM, x_);
+//  MatrixCopy(P_est, P_DIM, P_DIM, P_);
+//}
 
-// -----------------------------------------------------------------------------
-void KalmanVisionUpdate(const float vision[3])
-{
-  float x_est[X_DIM];
-  float P_est[P_DIM*P_DIM];
-  VisionUpdate(x_, P_, vision, x_est, P_est);
-  VectorCopy(x_est, X_DIM, x_);
-  MatrixCopy(P_est, P_DIM, P_DIM, P_);
-}
+//// -----------------------------------------------------------------------------
+//void KalmanVisionUpdate(const float vision[3])
+//{
+//  float x_est[X_DIM];
+//  float P_est[P_DIM*P_DIM];
+//  VisionUpdate(x_, P_, vision, x_est, P_est);
+//  VectorCopy(x_est, X_DIM, x_);
+//  MatrixCopy(P_est, P_DIM, P_DIM, P_);
+//}
 
-// -----------------------------------------------------------------------------
-void KalmanPositionUpdate(const float position[3])
-{
-  float x_est[X_DIM];
-  float P_est[P_DIM*P_DIM];
-  PositionUpdate(x_, P_, position, x_est, P_est);
-  VectorCopy(x_est, X_DIM, x_);
-  MatrixCopy(P_est, P_DIM, P_DIM, P_);
-}
+//// -----------------------------------------------------------------------------
+//void KalmanPositionUpdate(const float position[3])
+//{
+//  float x_est[X_DIM];
+//  float P_est[P_DIM*P_DIM];
+//  PositionUpdate(x_, P_, position, x_est, P_est);
+//  VectorCopy(x_est, X_DIM, x_);
+//  MatrixCopy(P_est, P_DIM, P_DIM, P_);
+//}
 
-// -----------------------------------------------------------------------------
-void KalmanGPSPositionUpdate(const int32_t longitude, const int32_t latitude,
-  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
-  const uint32_t vertical_accuracy)
-{
-  float x_est[X_DIM];
-  float P_est[P_DIM*P_DIM];
-  GPSPositionUpdate(x_, P_, longitude, latitude, height_mean_sea_level,
-    horizontal_accuracy, vertical_accuracy, x_est, P_est);
-  VectorCopy(x_est, X_DIM, x_);
-  MatrixCopy(P_est, P_DIM, P_DIM, P_);
-}
+//// -----------------------------------------------------------------------------
+//void KalmanGPSPositionUpdate(const int32_t longitude, const int32_t latitude,
+//  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
+//  const uint32_t vertical_accuracy)
+//{
+//  float x_est[X_DIM];
+//  float P_est[P_DIM*P_DIM];
+//  GPSPositionUpdate(x_, P_, longitude, latitude, height_mean_sea_level,
+//    horizontal_accuracy, vertical_accuracy, x_est, P_est);
+//  VectorCopy(x_est, X_DIM, x_);
+//  MatrixCopy(P_est, P_DIM, P_DIM, P_);
+//}
 
 // -----------------------------------------------------------------------------
 void ResetKalman(void)
@@ -189,16 +204,21 @@ void ResetKalman(void)
   heading_ = 0.0;
   x_[0] = 1.0;
   for (size_t i = 10; --i; ) x_[i] = 0.0;
-  for (size_t i = P_DIM * P_DIM; --i; ) P_[i] = 0.0;
-  P_[0*9+0] = 0.1;
-  P_[1*9+1] = 0.1;
-  P_[2*9+2] = 0.1;
-  P_[3*9+3] = 0.1;
-  P_[4*9+4] = 0.1;
-  P_[5*9+5] = 0.1;
-  P_[6*9+6] = 0.1;
-  P_[7*9+7] = 0.1;
-  P_[8*9+8] = 0.1;
+  for (size_t i = 3 * 3; --i; ) p_.aa[i] = 0.0;
+  for (size_t i = 3 * 3; --i; ) p_.av[i] = 0.0;
+  for (size_t i = 3 * 3; --i; ) p_.ar[i] = 0.0;
+  for (size_t i = 3 * 3; --i; ) p_.vv[i] = 0.0;
+  for (size_t i = 3 * 3; --i; ) p_.vr[i] = 0.0;
+  for (size_t i = 3 * 3; --i; ) p_.rr[i] = 0.0;
+  p_.aa[0*3+0] = 0.00001;
+  p_.aa[1*3+1] = 0.00001;
+  p_.aa[2*3+2] = 0.00001;
+  p_.vv[0*3+0] = 0.00001;
+  p_.vv[1*3+1] = 0.00001;
+  p_.vv[2*3+2] = 0.00001;
+  p_.rr[0*3+0] = 0.00001;
+  p_.rr[1*3+1] = 0.00001;
+  p_.rr[2*3+2] = 0.00001;
 }
 
 // -----------------------------------------------------------------------------
@@ -230,9 +250,9 @@ void SetGpsHome(const int32_t longitude, const int32_t latitude,
 // =============================================================================
 // Private functions:
 
-static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
+static void TimeUpdate(const float * x_est_prev, const struct P_ * P_est_prev,
   const float * gyro, const float * accelerometer, float * x_pred,
-  float * P_pred)
+  struct P_ * P_pred)
 {
   const float * quat_prev = &x_est_prev[0];
   const float * velocity_prev = &x_est_prev[4];
@@ -247,7 +267,7 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
   heading_ = HeadingFromQuaternion(quat_next);
 
   // Form body to inertial direction-cosine matrix.
-  float Cbi[3 * 3], temp[3*3];
+  float Cbi[3 * 3], temp[3*3], temp2[3*3];
   QuaternionToDCM(QuaternionInverse(quat_prev, temp), Cbi);
 
   // Transform acceleration measured in the body frame to the inertial frame.
@@ -266,19 +286,12 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
   // P_pred = Phi*P*Phi^T + Gamma*Q*Gamma^T
   //float * PhiPPhit = P_pred;  // conserves memory
   {
-    float P11[3*3], P12[3*3], P13[3*3];
-    float P21[3*3], P22[3*3], P23[3*3];
-    float P31[3*3], P32[3*3], P33[3*3];
-
-    SubmatrixCopyToMatrix(P_est_prev, P11, 0, 0, P_DIM, 3, 3);
-    SubmatrixCopyToMatrix(P_est_prev, P12, 0, 3, P_DIM, 3, 3);
-    SubmatrixCopyToMatrix(P_est_prev, P13, 0, 6, P_DIM, 3, 3);
-    SubmatrixCopyToMatrix(P_est_prev, P21, 3, 0, P_DIM, 3, 3);
-    SubmatrixCopyToMatrix(P_est_prev, P22, 3, 3, P_DIM, 3, 3);
-    SubmatrixCopyToMatrix(P_est_prev, P23, 3, 6, P_DIM, 3, 3);
-    SubmatrixCopyToMatrix(P_est_prev, P31, 6, 0, P_DIM, 3, 3);
-    SubmatrixCopyToMatrix(P_est_prev, P32, 6, 3, P_DIM, 3, 3);
-    SubmatrixCopyToMatrix(P_est_prev, P33, 6, 6, P_DIM, 3, 3);
+    const float * P11 = P_est_prev->aa;
+    const float * P12 = P_est_prev->av;
+    const float * P13 = P_est_prev->ar;
+    const float * P22 = P_est_prev->vv;
+    const float * P23 = P_est_prev->vr;
+    const float * P33 = P_est_prev->rr;
 
     // Phi = I + A * DT =
     //  [             I-[gyro x]*DT,    O, O ]
@@ -314,7 +327,7 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
 
     // PhiPPhit12
     MatrixMultiplyByTranspose(temp, Phi21, 3, 3, 3, PhiPPhit12);
-    MatrixMultiply(Phi11, P12, 3, 3, 3, temp);
+    MatrixMultiply(Phi11, P12, 3, 3, 3, temp); // this will be reused in "13"
     MatrixAddToSelf(PhiPPhit12, temp, 3, 3);
 
     // PhiPPhit13
@@ -322,15 +335,13 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     MatrixMultiply(Phi11, P13, 3, 3, 3, PhiPPhit13);
     MatrixAddToSelf(PhiPPhit13, temp, 3, 3);
 
-    // PhiPPhit21
-    MatrixMultiply(Phi21, P11, 3, 3, 3, temp);
-    MatrixAddToSelf(temp, P21, 3, 3);
-    MatrixMultiplyByTranspose(temp, Phi11, 3, 3, 3, PhiPPhit21);
-
     // PhiPPhit22
-    MatrixMultiplyByTranspose(temp, Phi21, 3, 3, 3, PhiPPhit22);
+    //MatrixMultiplyByTranspose(temp, Phi21, 3, 3, 3, PhiPPhit22);
+    MatrixMultiply(Phi21, P11, 3, 3, 3, temp);
+    MatrixAddToSelf(temp, MatrixTranspose(P12, 3, 3, temp2), 3, 3);
+    MatrixMultiply(temp, Phi21, 3, 3, 3, PhiPPhit22); // (Phi21*P11+P12^t)*Phi21
     MatrixMultiply(Phi21, P12, 3, 3, 3, temp);
-    MatrixAddToSelf(temp, P22, 3, 3);
+    MatrixAddToSelf(temp, P22, 3, 3); // Phi21*P12+P22 this will be reused in "23"
     MatrixAddToSelf(PhiPPhit22, temp, 3, 3);
 
     // PhiPPhit23
@@ -339,21 +350,12 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     MatrixAddToSelf(PhiPPhit23, P23, 3, 3);
     MatrixAddToSelf(PhiPPhit23, temp, 3, 3);
 
-    // PhiPPhit31
-    MatrixScale(P21, DT, 3, 3, temp);
-    MatrixAddToSelf(temp, P31, 3, 3);
-    MatrixMultiplyByTranspose(temp, Phi11, 3, 3, 3, PhiPPhit31);
-
-    // PhiPPhit32
-    MatrixMultiplyByTranspose(temp, Phi21, 3, 3, 3, PhiPPhit32);
-    MatrixScale(P22, DT, 3, 3, temp);
-    MatrixAddToSelf(temp, P32, 3, 3);
-    MatrixAddToSelf(PhiPPhit32, temp, 3, 3);
-
     // PhiPPhit33
+    MatrixScale(P22, DT, 3, 3, temp);
+    MatrixAddToSelf(temp, MatrixTranspose(P23, 3, 3, temp2), 3, 3); // P22*DT+P23^t
     MatrixScaleSelf(temp, DT, 3, 3);
     MatrixScale(P23, DT, 3, 3, PhiPPhit33);
-    MatrixAddToSelf(PhiPPhit33, P33, 3, 3);
+    MatrixAddToSelf(PhiPPhit33, P33, 3, 3); // P23*DT + P33
     MatrixAddToSelf(PhiPPhit33, temp, 3, 3);
 
     // GammaQGammat11
@@ -375,41 +377,46 @@ static void TimeUpdate(const float * x_est_prev, const float * P_est_prev,
     MatrixMultiply(Cbi, temp2, 3, 3, 3, temp);
     MatrixMultiply(temp, Cbi, 3, 3, 3, GammaQGammat22);
 
-    MatrixCopyToSubmatrix(MatrixAddToSelf(PhiPPhit11,GammaQGammat11,3,3),
-      P_pred, 0, 0, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit12, P_pred, 0, 3, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit13, P_pred, 0, 6, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit21, P_pred, 3, 0, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(MatrixAddToSelf(PhiPPhit22,GammaQGammat22,3,3),
-      P_pred, 3, 3, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit23, P_pred, 3, 6, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit31, P_pred, 6, 0, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit32, P_pred, 6, 3, 3, 3, P_DIM);
-    MatrixCopyToSubmatrix(PhiPPhit33, P_pred, 6, 6, 3, 3, P_DIM);
+    MatrixAdd(PhiPPhit11,GammaQGammat11,3,3,P_pred->aa);
+    MatrixCopy(PhiPPhit12,3,3,P_pred->av);
+    MatrixCopy(PhiPPhit13,3,3,P_pred->ar);
+    MatrixAdd(PhiPPhit22,GammaQGammat22,3,3,P_pred->vv);
+    MatrixCopy(PhiPPhit23,3,3,P_pred->vr);
+    MatrixCopy(PhiPPhit33,3,3,P_pred->rr);
   }
-
-  // Make P_pred symmetric
-  float temp4[P_DIM * P_DIM];
-  MatrixTranspose(P_pred,P_DIM,P_DIM,temp4);
-  MatrixAddToSelf(P_pred,temp4,P_DIM,P_DIM);
-  MatrixScaleSelf(P_pred,0.5,P_DIM,P_DIM);
-
 }
 
 // -----------------------------------------------------------------------------
-static void AccelerometerUpdate(const float * x_pred, const float * P_pred,
-  const float * accelerometer, float * x_est, float * P_est)
+static void AccelerometerUpdate(const float * x_pred, const struct P_ * P_pred,
+  const float * accelerometer, float * x_est, struct P_ * P_est)
 {
   const float * quat_pred = &x_pred[0]; // predicted attitude quaternion
+  //const float R_diag[3] = {
+  //  KALMAN_SIGMA_ACCELEROMETER_G * KALMAN_SIGMA_ACCELEROMETER_G,
+  //  KALMAN_SIGMA_ACCELEROMETER_G * KALMAN_SIGMA_ACCELEROMETER_G,
+  //  KALMAN_SIGMA_ACCELEROMETER_G * KALMAN_SIGMA_ACCELEROMETER_G,
+  //};
   const float R_diag[3] = {
-    KALMAN_SIGMA_ACCELEROMETER_G * KALMAN_SIGMA_ACCELEROMETER_G,
-    KALMAN_SIGMA_ACCELEROMETER_G * KALMAN_SIGMA_ACCELEROMETER_G,
-    KALMAN_SIGMA_ACCELEROMETER_G * KALMAN_SIGMA_ACCELEROMETER_G,
+    KALMAN_SIGMA_ACCELEROMETER_X * KALMAN_SIGMA_ACCELEROMETER_X,
+    KALMAN_SIGMA_ACCELEROMETER_Y * KALMAN_SIGMA_ACCELEROMETER_Y,
+    KALMAN_SIGMA_ACCELEROMETER_Z * KALMAN_SIGMA_ACCELEROMETER_Z,
   };
 
   float C[3 * 3], U[3 * 3], D[3 * 3], E[3 * 3], F[3 * 3], T[3 * 3];
   float temp[3 * 3];
   QuaternionToDCM(quat_pred, C);
+
+  printf("quat_pred:\n");
+  for(int i=0;i<4;i++){
+    printf("%+.8f  ",quat_pred[i]);
+  }printf("\n");
+
+  printf("C:\n");
+  for(int i=0;i<3;i++){
+    for(int j=0;j<3;j++){
+      printf("%+.8f",C[i*3+j]);
+    }printf("\n");
+  }
 
   // predicted measurement = C * [0 0 -G]^t
   const float predicted_measurement[3] = { C[0*3+2] * -G, C[1*3+2] * -G,
@@ -417,300 +424,391 @@ static void AccelerometerUpdate(const float * x_pred, const float * P_pred,
 
   Vector3ToSkewSymmetric3(predicted_measurement, U); // U = [(C*accelerometer^i) x]
 
-  SubmatrixCopyToMatrix(P_pred, temp, 0, 0, 9, 3, 3);
-  MatrixMultiply(U, temp, 3, 3, 3, D);  // D = U*P11
+  const float * Paa = P_pred->aa;
+  const float * Pav = P_pred->av;
+  const float * Par = P_pred->ar;
+  const float * Pvv = P_pred->vv;
+  const float * Pvr = P_pred->vr;
+  const float * Prr = P_pred->rr;
 
-  SubmatrixCopyToMatrix(P_pred, temp, 0, 3, 9, 3, 3);
-  MatrixMultiply(U, temp, 3, 3, 3, E);  // E = U*P12
-
-  SubmatrixCopyToMatrix(P_pred, temp, 0, 6, 9, 3, 3);
-  MatrixMultiply(U, temp, 3, 3, 3, F);  // F = U*P13
-
+  MatrixMultiply(U, Paa, 3, 3, 3, D);  // D = U*Paa
+  MatrixMultiply(U, Pav, 3, 3, 3, E);  // E = U*Pav
+  MatrixMultiply(U, Par, 3, 3, 3, F);  // F = U*Par
   MatrixMultiplyByTranspose(D, U, 3, 3, 3, temp);
   MatrixAddDiagonalToSelf(temp, R_diag, 3);
   MatrixInverse(temp, 3, T); // T = (D*U^t+R_diag)^(-1)
 
-  float K[P_DIM * 3];
-  MatrixMultiplyTransposeBy(D, T, 3, 3, 3, &K[0]); // K1 = D^t*T
-  MatrixMultiplyTransposeBy(E, T, 3, 3, 3, &K[9]); // K2 = E^t*T
-  MatrixMultiplyTransposeBy(F, T, 3, 3, 3, &K[18]); // K3 = F^t*T
+  //printf("U:\n");
+  //for(int i=0;i<3;i++){
+  //  for(int j=0;j<3;j++){
+  //    printf("%f,",U[i*3+j]);
+  //  }printf("\n");
+  //}
 
-  float temp2[3 * 3], KHP[P_DIM * P_DIM];
-  MatrixMultiply(&K[0], D, 3, 3, 3, temp); // K1D
-  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
-  MatrixMultiply(&K[0], E, 3, 3, 3, temp); // K1E
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 3, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 3, 0, 3, 3, P_DIM);
-  MatrixMultiply(&K[0], F, 3, 3, 3, temp); // K1F
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 6, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 6, 0, 3, 3, P_DIM);
-  MatrixMultiply(&K[9], E, 3, 3, 3, temp); // K2E
-  MatrixCopyToSubmatrix(temp, KHP, 3, 3, 3, 3, P_DIM);
-  MatrixMultiply(&K[9], F, 3, 3, 3, temp); // K2F
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 3, 6, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 6, 3, 3, 3, P_DIM);
-  MatrixMultiply(&K[18], F, 3, 3, 3, temp); // K3F
-  MatrixCopyToSubmatrix(temp, KHP, 6, 6, 3, 3, P_DIM);
+  //printf("P11:\n");
+  //for(int i=0;i<3;i++){
+  //  for(int j=0;j<3;j++){
+  //    printf("%f,",Paa[i*3+j]);
+  //  }printf("\n");
+  //}
+
+  //printf("R_diag:\n");
+  //for(int i=0;i<3;i++){
+  //    printf("%f,",R_diag[i]);
+  //}printf("\n");
+
+  //printf("D:\n");
+  //for(int i=0;i<3;i++){
+  //  for(int j=0;j<3;j++){
+  //    printf("%f,",D[i*3+j]);
+  //  }printf("\n");
+  //}
+
+  //printf("S:\n");
+  //for(int i=0;i<3;i++){
+  //  for(int j=0;j<3;j++){
+  //    printf("%f,",temp[i*3+j]);
+  //  }printf("\n");
+  //}
+
+  //printf("T:\n");
+  //for(int i=0;i<3;i++){
+  //  for(int j=0;j<3;j++){
+  //    printf("%f,",T[i*3+j]);
+  //  }printf("\n");
+  //}
+
+  float K[P_DIM * 3];
+  float * K1 = &K[0];
+  float * K2 = &K[9];
+  float * K3 = &K[18];
+
+  MatrixMultiplyTransposeBy(D, T, 3, 3, 3, K1); // K1 = D^t*T
+  MatrixMultiplyTransposeBy(E, T, 3, 3, 3, K2); // K2 = E^t*T
+  MatrixMultiplyTransposeBy(F, T, 3, 3, 3, K3); // K3 = F^t*T
+
+  printf("K:\n");
+  for(int i=0;i<9;i++){
+    for(int j=0;j<3;j++){
+      printf("%f,",K[i*3+j]);
+    }printf("\n");
+  }
+
+  MatrixMultiply(K1, D, 3, 3, 3, temp); // K1D
+  MatrixSubtract(Paa, temp, 3, 3, P_est->aa);
+  MatrixMultiply(K1, E, 3, 3, 3, temp); // K1E
+  MatrixSubtract(Pav, temp, 3, 3, P_est->av);
+  MatrixMultiply(K1, F, 3, 3, 3, temp); // K1F
+  MatrixSubtract(Par, temp, 3, 3, P_est->ar);
+  MatrixMultiply(K2, E, 3, 3, 3, temp); // K2E
+  MatrixSubtract(Pvv, temp, 3, 3, P_est->vv);
+  MatrixMultiply(K2, F, 3, 3, 3, temp); // K2F
+  MatrixSubtract(Pvr, temp, 3, 3, P_est->vr);
+  MatrixMultiply(K3, F, 3, 3, 3, temp); // K3F
+  MatrixSubtract(Prr, temp, 3, 3, P_est->rr);
   ////
   // KHP = [K1D K1E K1F]
   //         [    K2E K2F]
   //         [sym.    K3F]
   ////
 
-  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
+  printf("P:\n");
+  for(int i=0;i<3;i++){
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",P_est->aa[i*3+j]);
+    }
+    printf("  ");
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",P_est->av[i*3+j]);
+    }
+    printf("  ");
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",P_est->ar[i*3+j]);
+    }
+    printf("\n");
+  }
+  printf("\n");
+  for(int i=0;i<3;i++){
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",0);
+    }
+    printf("  ");
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",P_est->vv[i*3+j]);
+    }
+    printf("  ");
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",P_est->vr[i*3+j]);
+    }
+    printf("\n");
+  }
+  printf("\n");
+  for(int i=0;i<3;i++){
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",0);
+    }
+    printf("  ");
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",0);
+    }
+    printf("  ");
+    for(int j=0;j<3;j++){
+      printf("%+.8f,",P_est->rr[i*3+j]);
+    }
+    printf("\n");
+  }
+  printf("\n");
+
 
   MeasurementUpdateCommon(x_pred, accelerometer, predicted_measurement, K,
     x_est, 3);
 }
 
-// -----------------------------------------------------------------------------
-static void BaroAltitudeUpdate(const float *x_pred, const float *P_pred,
-  float baro_altitude, float *x_est, float *P_est)
-{
-  const float *r_pred = &x_pred[7]; // predicted position in i-frame
+//// -----------------------------------------------------------------------------
+//static void BaroAltitudeUpdate(const float *x_pred, const float *P_pred,
+//  float baro_altitude, float *x_est, float *P_est)
+//{
+//  const float *r_pred = &x_pred[7]; // predicted position in i-frame
 
-  const float R_diag[1] = { KALMAN_SIGMA_BARO * KALMAN_SIGMA_BARO };
+//  const float R_diag[1] = { KALMAN_SIGMA_BARO * KALMAN_SIGMA_BARO };
 
-  float P21[1*8], P22[1*1];
-  SubmatrixCopyToMatrix(P_pred, P21, 8, 0, P_DIM, 1, 8);
-  SubmatrixCopyToMatrix(P_pred, P22, 8, 8, P_DIM, 1, 1);
+//  float P21[1*8], P22[1*1];
+//  SubmatrixCopyToMatrix(P_pred, P21, 8, 0, P_DIM, 1, 8);
+//  SubmatrixCopyToMatrix(P_pred, P22, 8, 8, P_DIM, 1, 1);
 
-  float t = 1.0/(P22[0] + R_diag[0]);
+//  float t = 1.0/(P22[0] + R_diag[0]);
 
-  float K[P_DIM * 1];
-  SubmatrixCopyToMatrix(P_pred, K, 0, 8, P_DIM, 9, 1);
-  MatrixScaleSelf(K, t, P_DIM, 1);
+//  float K[P_DIM * 1];
+//  SubmatrixCopyToMatrix(P_pred, K, 0, 8, P_DIM, 9, 1);
+//  MatrixScaleSelf(K, t, P_DIM, 1);
 
-  float KHP[P_DIM * P_DIM];
-  float temp[8 * 8], temp2[1 * 8];
-  MatrixMultiply(&K[0], P21, 8, 1, 8, temp);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 8, 8, P_DIM);
-  MatrixScale(&K[0], P22[0], 8, 1, temp);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 8, 8, 1, P_DIM);
-  MatrixTranspose(temp, 8, 1, temp2);
-  MatrixCopyToSubmatrix(temp2, KHP, 8, 0, 1, 8, P_DIM);
-  KHP[8 * P_DIM + 8] = P22[0] * K[8];
+//  float KHP[P_DIM * P_DIM];
+//  float temp[8 * 8], temp2[1 * 8];
+//  MatrixMultiply(&K[0], P21, 8, 1, 8, temp);
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 8, 8, P_DIM);
+//  MatrixScale(&K[0], P22[0], 8, 1, temp);
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 8, 8, 1, P_DIM);
+//  MatrixTranspose(temp, 8, 1, temp2);
+//  MatrixCopyToSubmatrix(temp2, KHP, 8, 0, 1, 8, P_DIM);
+//  KHP[8 * P_DIM + 8] = P22[0] * K[8];
 
-  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
+//  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
 
-  // predicted measurement = r_pred[2] + baro_altitude_offset;
-  float predicted_measurement[1] = { r_pred[2] + baro_altitude_offset };
+//  // predicted measurement = r_pred[2] + baro_altitude_offset;
+//  float predicted_measurement[1] = { r_pred[2] + baro_altitude_offset };
 
-  MeasurementUpdateCommon(x_pred, &baro_altitude, predicted_measurement, K,
-    x_est, 1);
-}
+//  MeasurementUpdateCommon(x_pred, &baro_altitude, predicted_measurement, K,
+//    x_est, 1);
+//}
 
-// -----------------------------------------------------------------------------
-static void VisionUpdate(const float * x_pred, const float * P_pred,
-  const float * vision, float * x_est, float * P_est)
-{
-  const float * quat_pred = &x_pred[0]; // predicted attitude quaternion
-  const float * velocity_pred = &x_pred[4];  // predicted velocity in i-frame
+//// -----------------------------------------------------------------------------
+//static void VisionUpdate(const float * x_pred, const float * P_pred,
+//  const float * vision, float * x_est, float * P_est)
+//{
+//  const float * quat_pred = &x_pred[0]; // predicted attitude quaternion
+//  const float * velocity_pred = &x_pred[4];  // predicted velocity in i-frame
 
-  const float R_diag[3] = {
-    KALMAN_SIGMA_VISION * KALMAN_SIGMA_VISION,
-    KALMAN_SIGMA_VISION * KALMAN_SIGMA_VISION,
-    KALMAN_SIGMA_VISION * KALMAN_SIGMA_VISION,
-  };
+//  const float R_diag[3] = {
+//    KALMAN_SIGMA_VISION * KALMAN_SIGMA_VISION,
+//    KALMAN_SIGMA_VISION * KALMAN_SIGMA_VISION,
+//    KALMAN_SIGMA_VISION * KALMAN_SIGMA_VISION,
+//  };
 
-  float C[3 * 3], U[3 * 3], D[3 * 3], E[3 * 3], F[3 * 3], T[3 * 3];
-  float temp[3 * 3], temp2[3 * 3], temp3[3 * 3];
-  QuaternionToDCM(quat_pred, C);
-  MatrixMultiply(C, velocity_pred, 3, 3, 1, temp);
-  Vector3ToSkewSymmetric3(temp, U); // U = [(C*v^i) x]
+//  float C[3 * 3], U[3 * 3], D[3 * 3], E[3 * 3], F[3 * 3], T[3 * 3];
+//  float temp[3 * 3], temp2[3 * 3], temp3[3 * 3];
+//  QuaternionToDCM(quat_pred, C);
+//  MatrixMultiply(C, velocity_pred, 3, 3, 1, temp);
+//  Vector3ToSkewSymmetric3(temp, U); // U = [(C*v^i) x]
 
-  SubmatrixCopyToMatrix(P_pred, temp, 0, 0, 9, 3, 3);
-  MatrixMultiply(U, temp, 3, 3, 3, temp2);
-  SubmatrixCopyToMatrix(P_pred, temp, 3, 0, 9, 3, 3);
-  MatrixMultiply(C, temp, 3, 3, 3, temp3);
-  MatrixAdd(temp2, temp3, 3, 3, D); // D = U*P11 + C*P21
+//  SubmatrixCopyToMatrix(P_pred, temp, 0, 0, 9, 3, 3);
+//  MatrixMultiply(U, temp, 3, 3, 3, temp2);
+//  SubmatrixCopyToMatrix(P_pred, temp, 3, 0, 9, 3, 3);
+//  MatrixMultiply(C, temp, 3, 3, 3, temp3);
+//  MatrixAdd(temp2, temp3, 3, 3, D); // D = U*P11 + C*P21
 
-  SubmatrixCopyToMatrix(P_pred, temp, 0, 3, 9, 3, 3);
-  MatrixMultiply(U, temp, 3, 3, 3, temp2);
-  SubmatrixCopyToMatrix(P_pred, temp, 3, 3, 9, 3, 3);
-  MatrixMultiply(C, temp, 3, 3, 3, temp3);
-  MatrixAdd(temp2, temp3, 3, 3, E); // E = U*P12 + C*P22
+//  SubmatrixCopyToMatrix(P_pred, temp, 0, 3, 9, 3, 3);
+//  MatrixMultiply(U, temp, 3, 3, 3, temp2);
+//  SubmatrixCopyToMatrix(P_pred, temp, 3, 3, 9, 3, 3);
+//  MatrixMultiply(C, temp, 3, 3, 3, temp3);
+//  MatrixAdd(temp2, temp3, 3, 3, E); // E = U*P12 + C*P22
 
-  SubmatrixCopyToMatrix(P_pred, temp, 0, 6, 9, 3, 3);
-  MatrixMultiply(U, temp, 3, 3, 3, temp2);
-  SubmatrixCopyToMatrix(P_pred, temp, 3, 6, 9, 3, 3);
-  MatrixMultiply(C, temp, 3, 3, 3, temp3);
-  MatrixAdd(temp2, temp3, 3, 3, F); // F = U*P13 + C*P23
+//  SubmatrixCopyToMatrix(P_pred, temp, 0, 6, 9, 3, 3);
+//  MatrixMultiply(U, temp, 3, 3, 3, temp2);
+//  SubmatrixCopyToMatrix(P_pred, temp, 3, 6, 9, 3, 3);
+//  MatrixMultiply(C, temp, 3, 3, 3, temp3);
+//  MatrixAdd(temp2, temp3, 3, 3, F); // F = U*P13 + C*P23
 
-  MatrixMultiplyByTranspose(D, U, 3, 3, 3, temp);
-  MatrixMultiplyByTranspose(E, C, 3, 3, 3, temp2);
-  MatrixAdd(temp, temp2, 3, 3, temp3);
-  MatrixAddDiagonalToSelf(temp3, R_diag, 3);
-  MatrixInverse(temp3, 3, T); // T = (D*U^t+E*C^t+R_diag)^(-1)
+//  MatrixMultiplyByTranspose(D, U, 3, 3, 3, temp);
+//  MatrixMultiplyByTranspose(E, C, 3, 3, 3, temp2);
+//  MatrixAdd(temp, temp2, 3, 3, temp3);
+//  MatrixAddDiagonalToSelf(temp3, R_diag, 3);
+//  MatrixInverse(temp3, 3, T); // T = (D*U^t+E*C^t+R_diag)^(-1)
 
-  float K[P_DIM * 3];
-  MatrixMultiplyTransposeBy(D, T, 3, 3, 3, &K[0]); // K1 = D^t*T
-  MatrixMultiplyTransposeBy(E, T, 3, 3, 3, &K[9]); // K2 = E^t*T
-  MatrixMultiplyTransposeBy(F, T, 3, 3, 3, &K[18]); // K3 = F^t*T
+//  float K[P_DIM * 3];
+//  MatrixMultiplyTransposeBy(D, T, 3, 3, 3, &K[0]); // K1 = D^t*T
+//  MatrixMultiplyTransposeBy(E, T, 3, 3, 3, &K[9]); // K2 = E^t*T
+//  MatrixMultiplyTransposeBy(F, T, 3, 3, 3, &K[18]); // K3 = F^t*T
 
-  float KHP[P_DIM * P_DIM];
-  MatrixMultiply(&K[0], D, 3, 3, 3, temp); // K1D
-  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
-  MatrixMultiply(&K[0], E, 3, 3, 3, temp); // K1E
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 3, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 3, 0, 3, 3, P_DIM);
-  MatrixMultiply(&K[0], F, 3, 3, 3, temp); // K1F
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 6, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 6, 0, 3, 3, P_DIM);
-  MatrixMultiply(&K[9], E, 3, 3, 3, temp); // K2E
-  MatrixCopyToSubmatrix(temp, KHP, 3, 3, 3, 3, P_DIM);
-  MatrixMultiply(&K[9], F, 3, 3, 3, temp); // K2F
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 3, 6, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 6, 3, 3, 3, P_DIM);
-  MatrixMultiply(&K[18], F, 3, 3, 3, temp); // K3F
-  MatrixCopyToSubmatrix(temp, KHP, 6, 6, 3, 3, P_DIM);
-  ////
-  // KHP = [K1D K1E K1F]
-  //       [    K2E K2F]
-  //       [sym.    K3F]
-  ////
+//  float KHP[P_DIM * P_DIM];
+//  MatrixMultiply(&K[0], D, 3, 3, 3, temp); // K1D
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
+//  MatrixMultiply(&K[0], E, 3, 3, 3, temp); // K1E
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 3, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 3, 0, 3, 3, P_DIM);
+//  MatrixMultiply(&K[0], F, 3, 3, 3, temp); // K1F
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 6, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 6, 0, 3, 3, P_DIM);
+//  MatrixMultiply(&K[9], E, 3, 3, 3, temp); // K2E
+//  MatrixCopyToSubmatrix(temp, KHP, 3, 3, 3, 3, P_DIM);
+//  MatrixMultiply(&K[9], F, 3, 3, 3, temp); // K2F
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 3, 6, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 6, 3, 3, 3, P_DIM);
+//  MatrixMultiply(&K[18], F, 3, 3, 3, temp); // K3F
+//  MatrixCopyToSubmatrix(temp, KHP, 6, 6, 3, 3, P_DIM);
+//  ////
+//  // KHP = [K1D K1E K1F]
+//  //       [    K2E K2F]
+//  //       [sym.    K3F]
+//  ////
 
-  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
+//  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
 
-  // predicted measurement = C * velocity_pred
-  float predicted_measurement[3];
-  MatrixMultiply(C, velocity_pred, 3, 3, 1, predicted_measurement);
+//  // predicted measurement = C * velocity_pred
+//  float predicted_measurement[3];
+//  MatrixMultiply(C, velocity_pred, 3, 3, 1, predicted_measurement);
 
-  MeasurementUpdateCommon(x_pred, vision, predicted_measurement, K, x_est, 3);
-}
+//  MeasurementUpdateCommon(x_pred, vision, predicted_measurement, K, x_est, 3);
+//}
 
-static void PositionUpdate(const float * x_pred, const float * P_pred,
-  const float * position, float * x_est, float * P_est)
-{
-  const float *r_pred = &x_pred[7]; // predicted position in i-frame
-  const float R_diag[3] = {
-    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
-    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
-    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
-  };
+//static void PositionUpdate(const float * x_pred, const float * P_pred,
+//  const float * position, float * x_est, float * P_est)
+//{
+//  const float *r_pred = &x_pred[7]; // predicted position in i-frame
+//  const float R_diag[3] = {
+//    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
+//    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
+//    KALMAN_SIGMA_POSITION * KALMAN_SIGMA_POSITION,
+//  };
 
-  float P13[3 * 3], P23[3 * 3], P33[3 * 3];
-  SubmatrixCopyToMatrix(P_pred, P13, 0, 6, P_DIM, 3, 3);
-  SubmatrixCopyToMatrix(P_pred, P23, 3, 6, P_DIM, 3, 3);
-  SubmatrixCopyToMatrix(P_pred, P33, 6, 6, P_DIM, 3, 3);
+//  float P13[3 * 3], P23[3 * 3], P33[3 * 3];
+//  SubmatrixCopyToMatrix(P_pred, P13, 0, 6, P_DIM, 3, 3);
+//  SubmatrixCopyToMatrix(P_pred, P23, 3, 6, P_DIM, 3, 3);
+//  SubmatrixCopyToMatrix(P_pred, P33, 6, 6, P_DIM, 3, 3);
 
-  float temp[3 * 3], temp2[3 * 3];
-  MatrixCopy(P33, 3, 3, temp);
-  MatrixAddDiagonalToSelf(temp, R_diag, 3);
-  MatrixInverse(temp, 3, temp2);
+//  float temp[3 * 3], temp2[3 * 3];
+//  MatrixCopy(P33, 3, 3, temp);
+//  MatrixAddDiagonalToSelf(temp, R_diag, 3);
+//  MatrixInverse(temp, 3, temp2);
 
-  float K[P_DIM * 3];
-  MatrixMultiply(P13, temp2, 3, 3, 3, &K[0]); // P13*T
-  MatrixMultiply(P23, temp2, 3, 3, 3, &K[9]); // P23*T
-  MatrixMultiply(P33, temp2, 3, 3, 3, &K[18]); //P33*T
+//  float K[P_DIM * 3];
+//  MatrixMultiply(P13, temp2, 3, 3, 3, &K[0]); // P13*T
+//  MatrixMultiply(P23, temp2, 3, 3, 3, &K[9]); // P23*T
+//  MatrixMultiply(P33, temp2, 3, 3, 3, &K[18]); //P33*T
 
-  float KHP[P_DIM * P_DIM];
-  MatrixMultiplyByTranspose(&K[0], P13, 3, 3, 3, temp); // K1*P31
-  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[0], P23, 3, 3, 3, temp); // K1*P32
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 3, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 3, 0, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[0], P33, 3, 3, 3, temp); // K1*P33
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 6, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 6, 0, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[9], P23, 3, 3, 3, temp); // K2*P32
-  MatrixCopyToSubmatrix(temp, KHP, 3, 3, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[9], P33, 3, 3, 3, temp); // K2*P33
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 3, 6, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 6, 3, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[18], P33, 3, 3, 3, temp); // K3*P33
-  MatrixCopyToSubmatrix(temp, KHP, 6, 6, 3, 3, P_DIM);
-  ////
-  // KHP = [K1*P31 K1*P32 K1*P33]
-  //       [       K2*P32 K2*P33]
-  //       [sym.          K3*P33]
-  ////
+//  float KHP[P_DIM * P_DIM];
+//  MatrixMultiplyByTranspose(&K[0], P13, 3, 3, 3, temp); // K1*P31
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[0], P23, 3, 3, 3, temp); // K1*P32
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 3, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 3, 0, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[0], P33, 3, 3, 3, temp); // K1*P33
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 6, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 6, 0, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[9], P23, 3, 3, 3, temp); // K2*P32
+//  MatrixCopyToSubmatrix(temp, KHP, 3, 3, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[9], P33, 3, 3, 3, temp); // K2*P33
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 3, 6, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 6, 3, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[18], P33, 3, 3, 3, temp); // K3*P33
+//  MatrixCopyToSubmatrix(temp, KHP, 6, 6, 3, 3, P_DIM);
+//  ////
+//  // KHP = [K1*P31 K1*P32 K1*P33]
+//  //       [       K2*P32 K2*P33]
+//  //       [sym.          K3*P33]
+//  ////
 
-  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
+//  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
 
-  // predicted measurement = r_pred
-  float predicted_measurement[3];
-  MatrixCopy(r_pred, 3, 1, predicted_measurement);
+//  // predicted measurement = r_pred
+//  float predicted_measurement[3];
+//  MatrixCopy(r_pred, 3, 1, predicted_measurement);
 
-  MeasurementUpdateCommon(x_pred, position, predicted_measurement, K, x_est, 3);
-}
+//  MeasurementUpdateCommon(x_pred, position, predicted_measurement, K, x_est, 3);
+//}
 
-static void GPSPositionUpdate(const float * x_pred, const float * P_pred,
-  const int32_t longitude, const int32_t latitude,
-  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
-  const uint32_t vertical_accuracy, float * x_est, float * P_est)
-{
-  float position[3];
-  float x_ned = gpshome_.lon_scale * (longitude - gpshome_.longitude);
-  float y_ned = gpshome_.lat_scale * (latitude - gpshome_.latitude);
-  position[0] = gpshome_.cos_xaxis * x_ned - gpshome_.sin_xaxis * y_ned;
-  position[1] = gpshome_.sin_xaxis * x_ned + gpshome_.cos_xaxis * y_ned;
-  position[2] = gpshome_.height_scale * (height_mean_sea_level - gpshome_.height);
+//static void GPSPositionUpdate(const float * x_pred, const float * P_pred,
+//  const int32_t longitude, const int32_t latitude,
+//  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
+//  const uint32_t vertical_accuracy, float * x_est, float * P_est)
+//{
+//  float position[3];
+//  float x_ned = gpshome_.lon_scale * (longitude - gpshome_.longitude);
+//  float y_ned = gpshome_.lat_scale * (latitude - gpshome_.latitude);
+//  position[0] = gpshome_.cos_xaxis * x_ned - gpshome_.sin_xaxis * y_ned;
+//  position[1] = gpshome_.sin_xaxis * x_ned + gpshome_.cos_xaxis * y_ned;
+//  position[2] = gpshome_.height_scale * (height_mean_sea_level - gpshome_.height);
 
-  const float *r_pred = &x_pred[7]; // predicted position in i-frame
-  const float R_diag[3] = {
-    horizontal_accuracy * horizontal_accuracy,
-    horizontal_accuracy * horizontal_accuracy,
-    vertical_accuracy * vertical_accuracy,
-  };
+//  const float *r_pred = &x_pred[7]; // predicted position in i-frame
+//  const float R_diag[3] = {
+//    horizontal_accuracy * horizontal_accuracy,
+//    horizontal_accuracy * horizontal_accuracy,
+//    vertical_accuracy * vertical_accuracy,
+//  };
 
-  float P13[3 * 3], P23[3 * 3], P33[3 * 3];
-  SubmatrixCopyToMatrix(P_pred, P13, 0, 6, P_DIM, 3, 3);
-  SubmatrixCopyToMatrix(P_pred, P23, 3, 6, P_DIM, 3, 3);
-  SubmatrixCopyToMatrix(P_pred, P33, 6, 6, P_DIM, 3, 3);
+//  float P13[3 * 3], P23[3 * 3], P33[3 * 3];
+//  SubmatrixCopyToMatrix(P_pred, P13, 0, 6, P_DIM, 3, 3);
+//  SubmatrixCopyToMatrix(P_pred, P23, 3, 6, P_DIM, 3, 3);
+//  SubmatrixCopyToMatrix(P_pred, P33, 6, 6, P_DIM, 3, 3);
 
-  float temp[3 * 3], temp2[3 * 3];
-  MatrixCopy(P33, 3, 3, temp);
-  MatrixAddDiagonalToSelf(temp, R_diag, 3);
-  MatrixInverse(temp, 3, temp2);
+//  float temp[3 * 3], temp2[3 * 3];
+//  MatrixCopy(P33, 3, 3, temp);
+//  MatrixAddDiagonalToSelf(temp, R_diag, 3);
+//  MatrixInverse(temp, 3, temp2);
 
-  float K[P_DIM * 3];
-  MatrixMultiply(P13, temp2, 3, 3, 3, &K[0]); // P13*T
-  MatrixMultiply(P23, temp2, 3, 3, 3, &K[9]); // P23*T
-  MatrixMultiply(P33, temp2, 3, 3, 3, &K[18]); //P33*T
+//  float K[P_DIM * 3];
+//  MatrixMultiply(P13, temp2, 3, 3, 3, &K[0]); // P13*T
+//  MatrixMultiply(P23, temp2, 3, 3, 3, &K[9]); // P23*T
+//  MatrixMultiply(P33, temp2, 3, 3, 3, &K[18]); //P33*T
 
-  float KHP[P_DIM * P_DIM];
-  MatrixMultiplyByTranspose(&K[0], P13, 3, 3, 3, temp); // K1*P31
-  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[0], P23, 3, 3, 3, temp); // K1*P32
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 3, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 3, 0, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[0], P33, 3, 3, 3, temp); // K1*P33
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 0, 6, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 6, 0, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[9], P23, 3, 3, 3, temp); // K2*P32
-  MatrixCopyToSubmatrix(temp, KHP, 3, 3, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[9], P33, 3, 3, 3, temp); // K2*P33
-  MatrixTranspose(temp, 3, 3, temp2);
-  MatrixCopyToSubmatrix(temp, KHP, 3, 6, 3, 3, P_DIM);
-  MatrixCopyToSubmatrix(temp2, KHP, 6, 3, 3, 3, P_DIM);
-  MatrixMultiplyByTranspose(&K[18], P33, 3, 3, 3, temp); // K3*P33
-  MatrixCopyToSubmatrix(temp, KHP, 6, 6, 3, 3, P_DIM);
-  ////
-  // KHP = [K1*P31 K1*P32 K1*P33]
-  //       [       K2*P32 K2*P33]
-  //       [sym.          K3*P33]
-  ////
+//  float KHP[P_DIM * P_DIM];
+//  MatrixMultiplyByTranspose(&K[0], P13, 3, 3, 3, temp); // K1*P31
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 0, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[0], P23, 3, 3, 3, temp); // K1*P32
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 3, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 3, 0, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[0], P33, 3, 3, 3, temp); // K1*P33
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 0, 6, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 6, 0, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[9], P23, 3, 3, 3, temp); // K2*P32
+//  MatrixCopyToSubmatrix(temp, KHP, 3, 3, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[9], P33, 3, 3, 3, temp); // K2*P33
+//  MatrixTranspose(temp, 3, 3, temp2);
+//  MatrixCopyToSubmatrix(temp, KHP, 3, 6, 3, 3, P_DIM);
+//  MatrixCopyToSubmatrix(temp2, KHP, 6, 3, 3, 3, P_DIM);
+//  MatrixMultiplyByTranspose(&K[18], P33, 3, 3, 3, temp); // K3*P33
+//  MatrixCopyToSubmatrix(temp, KHP, 6, 6, 3, 3, P_DIM);
+//  ////
+//  // KHP = [K1*P31 K1*P32 K1*P33]
+//  //       [       K2*P32 K2*P33]
+//  //       [sym.          K3*P33]
+//  ////
 
-  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
+//  MatrixSubtract(P_pred, KHP, P_DIM, P_DIM, P_est);
 
-  // predicted measurement = r_pred
-  float predicted_measurement[3];
-  MatrixCopy(r_pred, 3, 1, predicted_measurement);
+//  // predicted measurement = r_pred
+//  float predicted_measurement[3];
+//  MatrixCopy(r_pred, 3, 1, predicted_measurement);
 
-  MeasurementUpdateCommon(x_pred, position, predicted_measurement, K, x_est, 3);
-}
+//  MeasurementUpdateCommon(x_pred, position, predicted_measurement, K, x_est, 3);
+//}
 
 // -----------------------------------------------------------------------------
 static void MeasurementUpdateCommon(const float * x_pred,
@@ -720,9 +818,9 @@ static void MeasurementUpdateCommon(const float * x_pred,
   float residual[Z_DIM_MAX];
   VectorSubtract(measurement, predicted_measurement, z_dim, residual);
 
-  // printf("predicted_measurement:%f,%f,%f\n",predicted_measurement[0],predicted_measurement[1],predicted_measurement[2]);
-  // printf("measurement:%f,%f,%f\n",measurement[0],measurement[1],measurement[2]);
-  // printf("residual:%f,%f,%f\n",residual[0],residual[1],residual[2]);
+  printf("predicted_measurement:%f,%f,%f\n",predicted_measurement[0],predicted_measurement[1],predicted_measurement[2]);
+  printf("measurement:%f,%f,%f\n",measurement[0],measurement[1],measurement[2]);
+  printf("residual:%f,%f,%f\n",residual[0],residual[1],residual[2]);
 
   float delta_x[P_DIM];
 //////////////////////////////////////////////////////////////////////////////// 21
@@ -766,8 +864,7 @@ static void MeasurementUpdateCommon(const float * x_pred,
   x_est[9] = delta_x[8];
   VectorAddToSelf(x_est, x_pred, X_DIM);
 
-  //QuaternionNormalizingFilter(&x_est[0]);  // normalize the quaternion portion
-  QuaternionNormalize(&x_est[0]);
+  QuaternionNormalizingFilter(&x_est[0]);  // normalize the quaternion portion
 }
 
 // -----------------------------------------------------------------------------
@@ -821,18 +918,6 @@ static float * QuaternionToDCM(const float *quat, float * result)
 
   // Double the result.
   for (size_t i = 0; i < 3*3; i++) result[i] += result[i];
-
-  float temp2[3*3];
-  MatrixCopy(result,3,3,temp2);
-  result[0] = temp2[0];
-  result[1] = 0.5*(temp2[1]-temp2[3]);
-  result[2] = 0.5*(temp2[2]-temp2[6]);
-  result[3] = -result[1];
-  result[4] = temp2[4];
-  result[5] = 0.5*(temp2[5]-temp2[7]);
-  result[6] = -result[2];
-  result[7] = -result[5];
-  result[8] = temp2[8];
 
   return result;
 }

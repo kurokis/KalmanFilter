@@ -4,15 +4,16 @@
 #include <sstream> // string to numbers
 
 #include "kalman_filter.h"
+#include "matrix.h" // debug
 
 using namespace std;
 
 void handle_io(string input_filename,string output_filename);
-void process_data(int32_t * input_int32_t, float * input_float, float * output);
+bool process_data(int32_t * input_int32_t, float * input_float, float * output);
 
 int main(void)
 {
-  string input_filename = "a06_straightb1_14-30-15.CSV";
+  string input_filename = "signal.csv";
   string output_filename = "signal_a.csv";
 
   ResetKalman();
@@ -58,22 +59,31 @@ void handle_io(string input_filename,string output_filename)
     //ctr++;
     //if(ctr<1782)
     //{
-      process_data(input_int32_t,input_float,output);
-      //write row
-      for(int i = 0; i < output_cols; i++)
+      bool advance_timestep = process_data(input_int32_t,input_float,output);
+      if(advance_timestep)
       {
-        ofs << output[i] << ",";
+        //write row
+        for(int i = 0; i < output_cols; i++)
+        {
+          ofs << output[i] << ",";
+        }
+        ofs << endl;
       }
-      ofs << endl;
+
     //}
   }
 }
-void process_data(int32_t * input_int32_t, float * input_float, float * output)
+bool process_data(int32_t * input_int32_t, float * input_float, float * output)
 {
   static bool gpsflag_ = false;
   static bool visionflag_ = false;
   static bool firstimu_ = true;
   static bool firstgps_ = true;
+
+  static bool advance_timestep = false;
+
+  static bool usevision = false;
+  static bool usegps = false;
 
   static int32_t longitude,latitude,height_mean_sea_level;
   static uint32_t horizontal_accuracy, vertical_accuracy;
@@ -96,40 +106,51 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
 
       if(firstimu_)
       {
-        accelerometer_bias[0] = accelerometer[0];
-        accelerometer_bias[1] = accelerometer[1];
-        accelerometer_bias[2] = accelerometer[2] + 9.8;
-        gyro_bias[0] = gyro[0];
-        gyro_bias[1] = gyro[1];
-        gyro_bias[2] = gyro[2];
+        //accelerometer_bias[0] = accelerometer[0];
+        //accelerometer_bias[1] = accelerometer[1];
+        //accelerometer_bias[2] = accelerometer[2] + 9.8;
+        //gyro_bias[0] = gyro[0];
+        //gyro_bias[1] = gyro[1];
+        //gyro_bias[2] = gyro[2];
         firstimu_ = false;
       }
-      accelerometer[0] -= accelerometer_bias[0];
-      accelerometer[1] -= accelerometer_bias[1];
-      accelerometer[2] -= accelerometer_bias[2];
-      gyro[0] -= gyro_bias[0];
-      gyro[1] -= gyro_bias[1];
-      gyro[2] -= gyro_bias[2];
+      //accelerometer[0] -= accelerometer_bias[0];
+      //accelerometer[1] -= accelerometer_bias[1];
+      //accelerometer[2] -= accelerometer_bias[2];
+      //gyro[0] -= gyro_bias[0];
+      //gyro[1] -= gyro_bias[1];
+      //gyro[2] -= gyro_bias[2];
 
       KalmanTimeUpdate(gyro, accelerometer);
-      KalmanAccelerometerUpdate(accelerometer);
-      if(gpsflag_)
-      {
-        cout << "GPS update" <<endl;
-        KalmanGPSPositionUpdate(longitude, latitude, height_mean_sea_level,
-          horizontal_accuracy*0.005, vertical_accuracy*0.005);
-        gpsflag_ = false;
-      }
-      if(visionflag_)
-      {
-        KalmanVisionUpdate(vision);
-        visionflag_ = false;
-      }
 
-      //cout << "quat:" <<KalmanQuat()[0] << " " << KalmanQuat()[1] << " " << KalmanQuat()[2] << " " << KalmanQuat()[3] << " " << endl;
-      //cout << "vel:" <<KalmanVelocity()[0] << " " << KalmanVelocity()[1] << " " << KalmanVelocity()[2] << " " << endl;
+      static int ctr = 2;
+      printf("\n\nCOL %d\n",ctr++);
+      printf("x_pred:\n");
+      cout << KalmanQuat()[0] << " " << KalmanQuat()[1] << " " << KalmanQuat()[2] << " " << KalmanQuat()[3] << " ";
+      cout << KalmanVelocity()[0] << " " << KalmanVelocity()[1] << " " << KalmanVelocity()[2] << " ";
+      cout << KalmanPosition()[0] << " " << KalmanPosition()[1] << " " << KalmanPosition()[2] << " " << endl;
+
+      KalmanAccelerometerUpdate(accelerometer);
+
+      //printf("x_est:\n");
+      //cout << KalmanQuat()[0] << " " << KalmanQuat()[1] << " " << KalmanQuat()[2] << " " << KalmanQuat()[3] << " ";
+      //cout << KalmanVelocity()[0] << " " << KalmanVelocity()[1] << " " << KalmanVelocity()[2] << " ";
       //cout << KalmanPosition()[0] << " " << KalmanPosition()[1] << " " << KalmanPosition()[2] << " " << endl;
 
+      //if(gpsflag_ && usegps)
+      //{
+      //  cout << "GPS update" <<endl;
+      //  KalmanGPSPositionUpdate(longitude, latitude, height_mean_sea_level,
+      //    horizontal_accuracy*0.005, vertical_accuracy*0.005);
+      //  gpsflag_ = false;
+      //}
+      //if(visionflag_ && usevision)
+      //{
+      //  KalmanVisionUpdate(vision);
+      //  visionflag_ = false;
+      //}
+
+      advance_timestep = true;
       break;
     case 1: // GPS
       cout << "GPS found" <<endl;
@@ -144,16 +165,21 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
         SetGpsHome(longitude,latitude,height_mean_sea_level,(180.0+70.0)*0.01745);
         firstgps_ = false;
       }
+
+      advance_timestep = false;
       break;
     case 8: // Ricoh sensor
       vision[0] = input_float[5] * 0.001 * 30;
       vision[1] = input_float[6] * 0.001 * 30;
       vision[2] = input_float[7] * 0.001 * 30;
       visionflag_ = true;
+
+      advance_timestep = false;
       break;
     default:
       break;
   }
+
   output[0] = accelerometer[0];
   output[1] = accelerometer[1];
   output[2] = accelerometer[2];
@@ -176,4 +202,6 @@ void process_data(int32_t * input_int32_t, float * input_float, float * output)
   output[19] = KalmanPAlpha()[0*3+0];
   output[20] = KalmanPAlpha()[1*3+1];
   output[21] = KalmanPAlpha()[2*3+2];
+
+  return advance_timestep;
 }

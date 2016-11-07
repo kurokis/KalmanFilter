@@ -1,7 +1,7 @@
 % parameters
 dt = 1/128;
 timesteps = 128;
-quaternion_parameters = [0.1 2*pi; 0 0; 0.5 2*pi]; % col1:amp, col2:freq
+quaternion_parameters = [0.5 pi 0; 0 0 0; 0.2 pi 0]; % col1:amp, col2:freq, bias
 position_parameters = [0*1 0*pi; 0 0; 0 0]; % col1:amp, col2:freq
 gps_home = (10^7).*[139; 39]; % longitude,latitude
 heading_xaxis = 90*pi/180; % initial heading in NED-frame
@@ -15,12 +15,13 @@ gravity = 9.8;
 export_filename = 'signal.csv';
 
 % initialization
+delete('signal.csv');
 ts = linspace(0,dt*(timesteps-1),timesteps);
 xs = zeros(10,timesteps);
-a = quaternion_parameters(1,1);b = quaternion_parameters(1,2);
-c = quaternion_parameters(2,1);d = quaternion_parameters(2,2);
-e = quaternion_parameters(3,1);f = quaternion_parameters(3,2);
-qs_vectorpart = [a*sin(b.*ts); c*sin(d.*ts); e*sin(f.*ts)];
+a = quaternion_parameters(1,1);b = quaternion_parameters(1,2);bx = quaternion_parameters(1,3);
+c = quaternion_parameters(2,1);d = quaternion_parameters(2,2);by = quaternion_parameters(2,3);
+e = quaternion_parameters(3,1);f = quaternion_parameters(3,2);bz = quaternion_parameters(3,3);
+qs_vectorpart = [a*sin(b.*ts)+bx; c*sin(d.*ts)+by; e*sin(f.*ts)+bz];
 qs_scalarpart = sqrt(1-qs_vectorpart(1,:).^2-qs_vectorpart(2,:).^2-qs_vectorpart(3,:).^2);
 xs(1:4,:) = [qs_scalarpart;qs_vectorpart];
 a = position_parameters(1,1);b = position_parameters(1,2);
@@ -66,7 +67,7 @@ for i = 2:timesteps
     
     % This method is more computationally efficient.
     dq = qmult2(qconj(q_pv),q);
-    wb_quat = 2.*qmult2((q-q_pv)./dt,qconj(q_pv));
+    wb_quat = (2/dt).*qmult2(qconj(q_pv),(q-q_pv));
     wbs(:,i) = wb_quat(2:4);
     gyros(:,i) = floor((wbs(:,i) + diag(gyro_sigma)*randn([3 1]))/(5/6.144/8*0.01745));
     

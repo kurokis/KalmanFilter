@@ -29,19 +29,19 @@ void KalmanTimeUpdate(const float gyro[3], const float accelerometer[3]);
 // -----------------------------------------------------------------------------
 void KalmanAccelerometerUpdate(const float accelerometer[3]);
 
-// -----------------------------------------------------------------------------
-void KalmanBaroAltitudeUpdate(float baro_altitude);
+//// -----------------------------------------------------------------------------
+//void KalmanBaroAltitudeUpdate(float baro_altitude);
 
-// -----------------------------------------------------------------------------
-void KalmanVisionUpdate(const float vision[3]);
+//// -----------------------------------------------------------------------------
+//void KalmanVisionUpdate(const float vision[3]);
 
-// -----------------------------------------------------------------------------
-void KalmanPositionUpdate(const float position[3]);
+//// -----------------------------------------------------------------------------
+//void KalmanPositionUpdate(const float position[3]);
 
-// -----------------------------------------------------------------------------
-void KalmanGPSPositionUpdate(const int32_t longitude, const int32_t latitude,
-  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
-  const uint32_t vertical_accuracy);
+//// -----------------------------------------------------------------------------
+//void KalmanGPSPositionUpdate(const int32_t longitude, const int32_t latitude,
+//  const int32_t height_mean_sea_level, const uint32_t horizontal_accuracy,
+//  const uint32_t vertical_accuracy);
 
 // -----------------------------------------------------------------------------
 void ResetKalman(void);
