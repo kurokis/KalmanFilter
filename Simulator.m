@@ -1,8 +1,8 @@
 % parameters
 dt = 1/128;
 timesteps = 128;
-quaternion_parameters = [0.5 pi 0; 0 0 0; 0.2 pi 0]; % col1:amp, col2:freq, bias
-position_parameters = [0*1 0*pi; 0 0; 0 0]; % col1:amp, col2:freq
+quaternion_parameters = [0.3 pi 0; 0.1 pi 0; 0.2 pi 0]; % col1:amp, col2:freq, bias
+position_parameters = [2 0.5*pi; 0 0; 0 0]; % col1:amp, col2:freq
 gps_home = (10^7).*[139; 39]; % longitude,latitude
 heading_xaxis = 90*pi/180; % initial heading in NED-frame
 accelerometer_sigma = [0.005 0.005 0.042];
@@ -12,10 +12,14 @@ gpspos_sigma = [5 5 5];
 gpsvel_sigma = [0.7 0.7 0.7];
 gpscourse_sigma = 40*10^5;
 gravity = 9.8;
-export_filename = 'signal.csv';
+export_filename = 'simulator.csv';
+vision_filewrite_interval = 4; % number of timesteps between vision measurements
+gps_filewrite_interval = 8; % number of timesteps between GPS measurements
 
-% initialization
-delete('signal.csv');
+% initialize
+if exist('simulator.csv', 'file')
+    delete('simulator.csv');
+end
 ts = linspace(0,dt*(timesteps-1),timesteps);
 xs = zeros(10,timesteps);
 a = quaternion_parameters(1,1);b = quaternion_parameters(1,2);bx = quaternion_parameters(1,3);
@@ -57,15 +61,8 @@ for i = 2:timesteps
     % ------ Accelerometer -------
     fbs(:,i) = qcoordinatetransform([0;0;-gravity],q);
     accelerometers(:,i) = floor((fbs(:,i) + diag(accelerometer_sigma)*randn([3 1]))/(5/1024/8*9.8));
-    
+        
     % ------ Gyro -------
-    % This method is not computationally efficient.
-    %dq = qmult2(qconj(q_pv),q);
-    %n = dq(2:4)./norm(dq(2:4)); % unit rotation vector in the frame of q_pv (and also q)
-    %dtheta = 2*asin( norm(dq(2:4)) );
-    %wb = n.*(dtheta/dt);
-    
-    % This method is more computationally efficient.
     dq = qmult2(qconj(q_pv),q);
     wb_quat = (2/dt).*qmult2(qconj(q_pv),(q-q_pv));
     wbs(:,i) = wb_quat(2:4);
@@ -87,14 +84,22 @@ for i = 2:timesteps
     gpsvels(:,i) = floor(100.*gpsvel_ned);
     gpscourses(:,i) = floor(atan2(gpsvel_ned(1),gpsvel_ned(2))*180/pi*10^5);
     
+    % Zero initial measurement
+    if(i==2)
+       accelerometers(:,i) = floor([0;0;-9.8]./(5/1024/8*9.8));
+       gyros(:,i) = [0;0;0];
+    end
 end
 
 % ------ Export sensor data -------
+vision_filewrite_counter = 1;
+gps_filewrite_counter = 1;
 for i = 2:timesteps
     timestamp = timestamps(:,i);
     accelerometer = accelerometers(:,i);
     gyro = gyros(:,i);
-    vision = visions(:,i);
+    vision_velocity = visions(:,i);
+    vision_angularvelocity = wbs(:,i)/30; % rad/frame
     gpspos = gpsposs(:,i);
     gpsvel = gpsvels(:,i);
     gpscourse = gpscourses(:,i);
@@ -104,19 +109,25 @@ for i = 2:timesteps
     dlmwrite(export_filename,row,'-append');
     
     % ------ Vision ------
-    row = [8 timestamp -1 -1 1 vision' [-1;-1;-1]' [-1;-1;-1]' [-1;-1;-1]' -1 -1 -1 -1 -1 -1 -1];
-    dlmwrite(export_filename,row,'-append');
+    if vision_filewrite_counter == vision_filewrite_interval
+        row = [8 timestamp -1 -1 1 vision_velocity' [-1;-1;-1]' vision_angularvelocity' [-1;-1;-1]' -1 -1 -1 -1 -1 -1 -1];
+        dlmwrite(export_filename,row,'-append');
+        vision_filewrite_counter = 1;
+    else
+        vision_filewrite_counter = vision_filewrite_counter + 1;
+    end
     
-    % ------ GPS Position ------
-    row = [1 timestamp -1 gpspos' floor(gpspos_sigma(1)*1000) floor(gpspos_sigma(3)*1000)];
-    dlmwrite(export_filename,row,'-append');
-    
-    % ------ GPS Velocity ------
-    row = [2 timestamp -1 gpsvel' -1 -1 gpscourse gpsvel_sigma(1) gpscourse_sigma];
-    dlmwrite(export_filename,row,'-append');
-    
+    % ------ GPS Position and Velocity ------
+    if gps_filewrite_counter == gps_filewrite_interval
+        row = [1 timestamp -1 gpspos' floor(gpspos_sigma(1)*1000) floor(gpspos_sigma(3)*1000)];
+        dlmwrite(export_filename,row,'-append');
+        row = [2 timestamp -1 gpsvel' -1 -1 gpscourse gpsvel_sigma(1) gpscourse_sigma];
+        dlmwrite(export_filename,row,'-append');
+        gps_filewrite_counter = 1;
+    else
+        gps_filewrite_counter = gps_filewrite_counter + 1;
+    end
 end
-
 
 % ------ Double check for angular velocity calculation  -------
 %qsdc = zeros(4,timesteps);
@@ -132,7 +143,3 @@ end
 %    q = q_./norm(q_);
 %    qsdc(:,i) = q;
 %end
-
-%P0_diag = 0.00001.*[1 1 1 1 1 1 1 1 1];
-%Ps = zeros(9,9,timesteps);
-%Ps(:,:,1) = diag(P0_diag);
